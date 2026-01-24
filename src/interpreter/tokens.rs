@@ -7,7 +7,13 @@ pub enum Token {
     Operand(Operator),
     Seperator(Seperator),
 
-    Value(String),
+    Value(Value),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Value {
+    Int(i64),
+    Str(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

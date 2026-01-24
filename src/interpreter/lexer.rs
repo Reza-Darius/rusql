@@ -68,19 +68,23 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        parse_keyword(&substring).unwrap_or_else(|| Token::Value(substring))
+        parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring))
     }
 }
 
 fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
+    debug!("skipping whitespace");
     while let Some(c) = iter.peek() {
         if c.is_whitespace() {
             iter.next();
+        } else {
+            return;
         }
     }
 }
 
 fn parse_char(char: &char) -> Option<Token> {
+    debug!("parsing char");
     match *char {
         LPAREN => Some(Token::Seperator(Seperator::LParen)),
         RPAREN => Some(Token::Seperator(Seperator::RParen)),
@@ -99,13 +103,25 @@ fn parse_char(char: &char) -> Option<Token> {
 
 fn parse_keyword(string: &str) -> Option<Token> {
     KEYWORDS.with(|e| {
-        if let Some(k) = e.get(string) {
+        if let Some(k) = e.get(string.to_ascii_lowercase().as_str()) {
             debug!(?k, "Keyword found");
             Some(Token::Keyword(*k))
         } else {
+            debug!(string, "keyword not found");
             None
         }
     })
+}
+
+fn parse_value(string: &str) -> Token {
+    if string.starts_with('"') && string.ends_with('"') {
+        return Token::Value(Value::Str(string.trim_matches('"').to_string()));
+    }
+    if let Ok(int) = string.parse::<i64>() {
+        Token::Value(Value::Int(int))
+    } else {
+        Token::Illegal
+    }
 }
 
 #[cfg(test)]
@@ -115,7 +131,7 @@ mod lexer_test {
 
     #[test]
     fn token_test() -> Result<()> {
-        let input = "SELECT * FROM my_table";
+        let input = "SELECT 10 FROM \"my_table\"";
         let mut lexer = Lexer::new(input);
 
         let t1 = lexer.next_token();
@@ -125,10 +141,10 @@ mod lexer_test {
         let t5 = lexer.next_token();
 
         assert_eq!(t1, Token::Keyword(Keyword::SELECT));
-        assert_eq!(t2, Token::Value("*".to_string()));
+        assert_eq!(t2, Token::Value(Value::Int(10)));
         assert_eq!(t3, Token::Keyword(Keyword::FROM));
-        assert_eq!(t4, Token::Value("my_table".to_string()));
+        assert_eq!(t4, Token::Value(Value::Str("my_table".to_string())));
         assert_eq!(t5, Token::EOF);
-        todo!()
+        Ok(())
     }
 }
