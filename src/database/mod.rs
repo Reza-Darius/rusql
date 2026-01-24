@@ -1,7 +1,7 @@
 pub mod api;
 mod btree;
 mod codec;
-mod errors;
+pub(crate) mod errors;
 pub(crate) mod helper;
 mod pager;
 mod tables;

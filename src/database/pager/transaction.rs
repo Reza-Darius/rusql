@@ -66,12 +66,9 @@ impl Transaction for DiskPager {
 
     fn abort(&self, tx: TX) -> Result<CommitStatus> {
         debug!("aborting...");
-        // a previous transaction failed
         if tx.version > self.version.load(Ordering::Acquire) {
-            // TODO: check history to write anyways
-            return Err(
-                TXError::CommitError("database was rollbacked, aborting TX".to_string()).into(),
-            );
+            // the database was rolled back
+            return Ok(CommitStatus::StaleVersion);
         }
 
         let tx_buf = tx.db.tx_buf.as_ref().unwrap().borrow_mut();

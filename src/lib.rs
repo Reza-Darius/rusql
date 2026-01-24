@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_variables)]
 mod database;
+mod interpreter;
 
 // // can import
 // use database::create_file_sync;
