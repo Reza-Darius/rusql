@@ -25,7 +25,9 @@ pub enum Keyword {
     INSERT,
     UPDATE,
     DELETE,
+    CREATE,
 
+    VALUES,
     ALL,
     AND,
     FROM,
@@ -38,6 +40,8 @@ pub const SELECT: &'static str = "select";
 pub const INSERT: &'static str = "insert";
 pub const UPDATE: &'static str = "update";
 pub const DELETE: &'static str = "delete";
+pub const CREATE: &'static str = "create";
+pub const VALUES: &'static str = "values";
 
 pub const ALL: &'static str = "all";
 pub const AND: &'static str = "and";
@@ -53,6 +57,8 @@ thread_local! {
         map.insert(INSERT, Keyword::INSERT);
         map.insert(UPDATE, Keyword::UPDATE);
         map.insert(DELETE, Keyword::DELETE);
+        map.insert(CREATE, Keyword::CREATE);
+        map.insert(VALUES, Keyword::VALUES);
 
         map.insert(ALL, Keyword::ALL);
         map.insert(AND, Keyword::AND);

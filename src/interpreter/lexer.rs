@@ -5,7 +5,7 @@ use tracing::debug;
 use crate::database::errors::*;
 use crate::interpreter::tokens::*;
 
-struct Lexer<'a> {
+pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
     empty: bool,
 }
@@ -28,7 +28,7 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    fn new(input: &'a str) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Lexer {
             input: input.chars().peekable(),
             empty: false,

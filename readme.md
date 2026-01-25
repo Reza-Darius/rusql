@@ -10,5 +10,5 @@ A minimal, from-scratch database engine in Rust.
 - Crash resilience through rollbacks
 - Type-safe error handling 
 - Supports tables and secondary indices
-- Multi threaded transactions
+- Concurrent transactions, through MVCC
 - Read optimized through shared LRU cache

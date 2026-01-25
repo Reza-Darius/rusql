@@ -32,6 +32,10 @@ pub enum Error {
     #[error("Search Error, {0}")]
     SearchError(String),
 
+    // interpreter
+    #[error("parse error {0}")]
+    ParseError(#[from] ParseError),
+
     // wrapper
     #[error("Pager error, {0}")]
     PagerError(#[from] PagerError),
@@ -200,4 +204,10 @@ pub(crate) enum TXError {
     EmptyWriteError,
     #[error("Retry limit reached")]
     RetriesExceeded,
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum ParseError {
+    #[error("parsing error: {0}")]
+    ParseError(String),
 }
