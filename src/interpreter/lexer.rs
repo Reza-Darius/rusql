@@ -3,61 +3,50 @@ use std::{collections::HashMap, iter::Peekable, str::Chars};
 use tracing::debug;
 
 use crate::database::errors::*;
-
 use crate::interpreter::tokens::*;
-
-thread_local! {
-    static KEYWORDS: HashMap<&'static str, Keyword> =  {
-        let mut map = HashMap::new();
-        map.insert(SELECT, Keyword::SELECT);
-        map.insert(INSERT, Keyword::INSERT);
-        map.insert(UPDATE, Keyword::UPDATE);
-        map.insert(DELETE, Keyword::DELETE);
-
-        map.insert(FROM, Keyword::FROM);
-        map.insert(INTO, Keyword::INTO);
-        map.insert(WHERE, Keyword::WHERE);
-        map.insert(LIMIT, Keyword::LIMIT);
-        map
-    }
-}
 
 struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
+    empty: bool,
 }
 
-// impl<'a> Iterator for Lexer<'a> {
-//     type Item = Token;
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Token;
 
-//     fn next(&mut self) -> Option<Self::Item> {
-//         todo!()
-//     }
-// }
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.empty {
+            return None;
+        }
+        match self.next_token() {
+            Token::EOF => {
+                self.empty = true;
+                Some(Token::EOF)
+            }
+            token => Some(token),
+        }
+    }
+}
 
 impl<'a> Lexer<'a> {
     fn new(input: &'a str) -> Self {
         Lexer {
             input: input.chars().peekable(),
+            empty: false,
         }
     }
 
     fn next_token(&mut self) -> Token {
+        if self.empty {
+            return Token::EOF;
+        }
+
+        let iter = &mut self.input;
         let mut substring: String = String::new();
-        skip_whitespace(&mut self.input);
+        skip_whitespace(iter);
 
         // check for single character token
-        match self.input.next() {
-            Some(c) => match parse_char(&c) {
-                Some(t) => {
-                    debug!(?t, "returning token");
-                    return t;
-                }
-                None => substring.push(c),
-            },
-            None => {
-                debug!("returning EOF token");
-                return Token::EOF;
-            }
+        if let Some(t) = parse_char(iter) {
+            return t;
         }
 
         // create substring
@@ -83,21 +72,45 @@ fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
     }
 }
 
-fn parse_char(char: &char) -> Option<Token> {
+fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
     debug!("parsing char");
-    match *char {
-        LPAREN => Some(Token::Seperator(Seperator::LParen)),
-        RPAREN => Some(Token::Seperator(Seperator::RParen)),
-        COMMA => Some(Token::Seperator(Seperator::Comma)),
+    match iter.peek() {
+        Some(c) => match *c {
+            LPAREN => Some(Token::Seperator(Seperator::LParen)),
+            RPAREN => Some(Token::Seperator(Seperator::RParen)),
+            COMMA => Some(Token::Seperator(Seperator::Comma)),
+            ASSIGN => Some(Token::Operand(Operator::ASSIGN)),
+            PLUS => Some(Token::Operand(Operator::PLUS)),
+            MINUS => Some(Token::Operand(Operator::MINUS)),
+            MULTI => Some(Token::Operand(Operator::MULTI)),
+            DIVIDE => Some(Token::Operand(Operator::DIVIDE)),
+            MODULO => Some(Token::Operand(Operator::MODULO)),
+            LT => {
+                iter.next();
+                if let Some(c) = iter.peek()
+                    && let ASSIGN = *c
+                {
+                    iter.next();
+                    Some(Token::Operand(Operator::LE))
+                } else {
+                    Some(Token::Operand(Operator::LT))
+                }
+            }
+            GT => {
+                iter.next();
+                if let Some(c) = iter.peek()
+                    && let ASSIGN = *c
+                {
+                    iter.next();
+                    Some(Token::Operand(Operator::GE))
+                } else {
+                    Some(Token::Operand(Operator::GT))
+                }
+            }
 
-        ASSIGN => Some(Token::Operand(Operator::ASSIGN)),
-        PLUS => Some(Token::Operand(Operator::PLUS)),
-        MINUS => Some(Token::Operand(Operator::MINUS)),
-        MULTI => Some(Token::Operand(Operator::MULTI)),
-        DIVIDE => Some(Token::Operand(Operator::DIVIDE)),
-        MODULO => Some(Token::Operand(Operator::MODULO)),
-
-        _ => None,
+            _ => None,
+        },
+        None => Some(Token::EOF),
     }
 }
 
@@ -120,7 +133,7 @@ fn parse_value(string: &str) -> Token {
     if let Ok(int) = string.parse::<i64>() {
         Token::Value(Value::Int(int))
     } else {
-        Token::Illegal
+        Token::Ident(string.to_string())
     }
 }
 
@@ -131,7 +144,7 @@ mod lexer_test {
 
     #[test]
     fn token_test() -> Result<()> {
-        let input = "SELECT 10 FROM \"my_table\"";
+        let input = "SELECT ALL FROM my_table";
         let mut lexer = Lexer::new(input);
 
         let t1 = lexer.next_token();
@@ -141,10 +154,30 @@ mod lexer_test {
         let t5 = lexer.next_token();
 
         assert_eq!(t1, Token::Keyword(Keyword::SELECT));
-        assert_eq!(t2, Token::Value(Value::Int(10)));
+        assert_eq!(t2, Token::Keyword(Keyword::ALL));
         assert_eq!(t3, Token::Keyword(Keyword::FROM));
-        assert_eq!(t4, Token::Value(Value::Str("my_table".to_string())));
+        assert_eq!(t4, Token::Ident("my_table".to_string()));
         assert_eq!(t5, Token::EOF);
+        Ok(())
+    }
+
+    #[test]
+    fn token_test2() -> Result<()> {
+        let input = "SELECT name FROM my_table WHERE x >= 5";
+        let tokens: Vec<Token> = Lexer::new(input).collect();
+        let mut iter = tokens.into_iter();
+
+        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::SELECT));
+        assert_eq!(iter.next().unwrap(), Token::Ident("name".to_string()));
+        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::FROM));
+        assert_eq!(iter.next().unwrap(), Token::Ident("my_table".to_string()));
+        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::WHERE));
+        assert_eq!(iter.next().unwrap(), Token::Ident("x".to_string()));
+        assert_eq!(iter.next().unwrap(), Token::Operand(Operator::GE));
+        assert_eq!(iter.next().unwrap(), Token::Value(Value::Int(5i64)));
+        assert_eq!(iter.next().unwrap(), Token::EOF);
+        assert!(iter.next().is_none());
+
         Ok(())
     }
 }

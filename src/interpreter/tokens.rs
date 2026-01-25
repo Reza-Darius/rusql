@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, PartialEq)]
 pub enum Token {
     Illegal,
@@ -7,6 +9,7 @@ pub enum Token {
     Operand(Operator),
     Seperator(Seperator),
 
+    Ident(String),
     Value(Value),
 }
 
@@ -23,6 +26,8 @@ pub enum Keyword {
     UPDATE,
     DELETE,
 
+    ALL,
+    AND,
     FROM,
     INTO,
     WHERE,
@@ -34,10 +39,30 @@ pub const INSERT: &'static str = "insert";
 pub const UPDATE: &'static str = "update";
 pub const DELETE: &'static str = "delete";
 
+pub const ALL: &'static str = "all";
+pub const AND: &'static str = "and";
 pub const FROM: &'static str = "from";
 pub const INTO: &'static str = "into";
 pub const WHERE: &'static str = "where";
 pub const LIMIT: &'static str = "limit";
+
+thread_local! {
+    pub static KEYWORDS: HashMap<&'static str, Keyword> =  {
+        let mut map = HashMap::new();
+        map.insert(SELECT, Keyword::SELECT);
+        map.insert(INSERT, Keyword::INSERT);
+        map.insert(UPDATE, Keyword::UPDATE);
+        map.insert(DELETE, Keyword::DELETE);
+
+        map.insert(ALL, Keyword::ALL);
+        map.insert(AND, Keyword::AND);
+        map.insert(FROM, Keyword::FROM);
+        map.insert(INTO, Keyword::INTO);
+        map.insert(WHERE, Keyword::WHERE);
+        map.insert(LIMIT, Keyword::LIMIT);
+        map
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operator {
@@ -47,6 +72,10 @@ pub enum Operator {
     MULTI,
     DIVIDE,
     MODULO,
+    LT,
+    LE,
+    GT,
+    GE,
 }
 
 pub const ASSIGN: char = '=';
@@ -55,6 +84,8 @@ pub const MINUS: char = '-';
 pub const MULTI: char = '*';
 pub const DIVIDE: char = '/';
 pub const MODULO: char = '%';
+pub const LT: char = '<';
+pub const GT: char = '>';
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Seperator {
