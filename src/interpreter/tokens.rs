@@ -6,7 +6,7 @@ pub enum Token {
     EOF,
 
     Keyword(Keyword),
-    Operand(Operator),
+    Operator(Operator),
     Seperator(Seperator),
 
     Ident(String),
@@ -30,6 +30,8 @@ pub enum Keyword {
     VALUES,
     ALL,
     AND,
+    OR,
+    NOT,
     FROM,
     INTO,
     WHERE,
@@ -45,6 +47,8 @@ pub const VALUES: &'static str = "values";
 
 pub const ALL: &'static str = "all";
 pub const AND: &'static str = "and";
+pub const OR: &'static str = "or";
+pub const NOT: &'static str = "not";
 pub const FROM: &'static str = "from";
 pub const INTO: &'static str = "into";
 pub const WHERE: &'static str = "where";
@@ -62,6 +66,9 @@ thread_local! {
 
         map.insert(ALL, Keyword::ALL);
         map.insert(AND, Keyword::AND);
+        map.insert(OR, Keyword::OR);
+        map.insert(NOT, Keyword::NOT);
+
         map.insert(FROM, Keyword::FROM);
         map.insert(INTO, Keyword::INTO);
         map.insert(WHERE, Keyword::WHERE);

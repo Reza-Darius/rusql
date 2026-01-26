@@ -79,21 +79,21 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             LPAREN => Some(Token::Seperator(Seperator::LParen)),
             RPAREN => Some(Token::Seperator(Seperator::RParen)),
             COMMA => Some(Token::Seperator(Seperator::Comma)),
-            ASSIGN => Some(Token::Operand(Operator::ASSIGN)),
-            PLUS => Some(Token::Operand(Operator::PLUS)),
-            MINUS => Some(Token::Operand(Operator::MINUS)),
-            MULTI => Some(Token::Operand(Operator::MULTI)),
-            DIVIDE => Some(Token::Operand(Operator::DIVIDE)),
-            MODULO => Some(Token::Operand(Operator::MODULO)),
+            ASSIGN => Some(Token::Operator(Operator::ASSIGN)),
+            PLUS => Some(Token::Operator(Operator::PLUS)),
+            MINUS => Some(Token::Operator(Operator::MINUS)),
+            MULTI => Some(Token::Operator(Operator::MULTI)),
+            DIVIDE => Some(Token::Operator(Operator::DIVIDE)),
+            MODULO => Some(Token::Operator(Operator::MODULO)),
             LT => {
                 iter.next();
                 if let Some(c) = iter.peek()
                     && let ASSIGN = *c
                 {
                     iter.next();
-                    Some(Token::Operand(Operator::LE))
+                    Some(Token::Operator(Operator::LE))
                 } else {
-                    Some(Token::Operand(Operator::LT))
+                    Some(Token::Operator(Operator::LT))
                 }
             }
             GT => {
@@ -102,9 +102,9 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
                     && let ASSIGN = *c
                 {
                     iter.next();
-                    Some(Token::Operand(Operator::GE))
+                    Some(Token::Operator(Operator::GE))
                 } else {
-                    Some(Token::Operand(Operator::GT))
+                    Some(Token::Operator(Operator::GT))
                 }
             }
 
@@ -173,7 +173,7 @@ mod lexer_test {
         assert_eq!(iter.next().unwrap(), Token::Ident("my_table".to_string()));
         assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::WHERE));
         assert_eq!(iter.next().unwrap(), Token::Ident("x".to_string()));
-        assert_eq!(iter.next().unwrap(), Token::Operand(Operator::GE));
+        assert_eq!(iter.next().unwrap(), Token::Operator(Operator::GE));
         assert_eq!(iter.next().unwrap(), Token::Value(Value::Int(5i64)));
         assert_eq!(iter.next().unwrap(), Token::EOF);
         assert!(iter.next().is_none());

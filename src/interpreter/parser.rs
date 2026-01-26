@@ -4,7 +4,7 @@ use std::os::linux::raw::stat;
 use crate::database::errors::{Error, ParseError, Result};
 use crate::interpreter::{lexer::*, tokens::*};
 
-enum Statement {
+pub enum Statement {
     Select(SelectStatement),
     Insert(InsertStatement),
     Update(UpdateStatement),
@@ -12,14 +12,14 @@ enum Statement {
     Create(CreateStatement),
 }
 
-pub fn parse(input: &str) -> Result<Statement> {
+pub fn parse_input(input: &str) -> Result<Statement> {
     let mut tokens = Lexer::new(input).peekable();
 
     if let Some(t) = tokens.next() {
         match t {
             Token::Keyword(Keyword::SELECT) => parse_select(&mut tokens),
             // Token::Keyword(Keyword::INSERT) => parse_insert(&mut tokens),
-            _ => todo!(),
+            _ => Err(ParseError::ParseError("invalid input".to_string()).into()),
         }
     } else {
         // error
@@ -27,11 +27,11 @@ pub fn parse(input: &str) -> Result<Statement> {
     }
 }
 
-struct SelectStatement {
+pub struct SelectStatement {
     columns: Vec<String>,
     table: String,
     index: Option<Vec<Index>>,
-    limit: Option<Limit>,
+    limit: Option<Value>,
 }
 
 fn parse_select(tokens: &mut Peekable<Lexer>) -> Result<Statement> {
@@ -43,27 +43,40 @@ fn parse_select(tokens: &mut Peekable<Lexer>) -> Result<Statement> {
     };
 
     statement.columns = parse_columns(tokens)?;
+    statement.table = parse_table(tokens)?;
 
-    // parse table
-    if let Some(t) = tokens.next() {
-        match t {
-            Token::Ident(i) => {
-                statement.table.push_str(&i);
-            }
-            _ => return Err(ParseError::ParseError("invalid column token".to_string()).into()),
+    if let Some(t) = tokens.peek() {
+        if *t == Token::EOF {
+            return Ok(Statement::Select(statement));
         }
-    }
-
-    if tokens.peek().is_none() {
+    } else {
         return Ok(Statement::Select(statement));
     }
 
-    // optional index or limit
+    // optional index or limit clause
+    match tokens.next().expect("we just peeked") {
+        Token::Keyword(Keyword::WHERE) => {
+            statement.index = Some(parse_index(tokens)?);
+            ()
+        }
+        Token::Keyword(Keyword::LIMIT) => {
+            statement.limit = Some(parse_limit(tokens)?);
+            return Ok(Statement::Select(statement));
+        }
+        t => {
+            return Err(ParseError::InvalidToken {
+                expected: "expected WHERE or LIMIT clause".to_string(),
+                got: t,
+            }
+            .into());
+        }
+    };
     todo!()
 }
 
 fn parse_columns(tokens: &mut Peekable<Lexer>) -> Result<Vec<String>> {
     let mut cols: Vec<String> = vec![];
+
     // single column
     if let Some(t) = tokens.next() {
         match t {
@@ -72,7 +85,13 @@ fn parse_columns(tokens: &mut Peekable<Lexer>) -> Result<Vec<String>> {
                 return Ok(cols);
             }
             Token::Seperator(Seperator::LParen) => (),
-            _ => return Err(ParseError::ParseError("invalid column token".to_string()).into()),
+            t => {
+                return Err(ParseError::InvalidToken {
+                    expected: "expected column name".to_string(),
+                    got: t,
+                }
+                .into());
+            }
         }
     }
 
@@ -85,7 +104,7 @@ fn parse_columns(tokens: &mut Peekable<Lexer>) -> Result<Vec<String>> {
             _ => return Err(ParseError::ParseError("invalid column token".to_string()).into()),
         }
     } else {
-        return Err(ParseError::ParseError("invalid column token".to_string()).into());
+        return Err(ParseError::ParseError("missing token".to_string()).into());
     }
 
     while let Some(t) = tokens.next() {
@@ -95,28 +114,67 @@ fn parse_columns(tokens: &mut Peekable<Lexer>) -> Result<Vec<String>> {
             }
             Token::Seperator(Seperator::RParen) => return Ok(cols),
             Token::Seperator(Seperator::Comma) => continue,
-            _ => return Err(ParseError::ParseError("invalid column token".to_string()).into()),
+            t => {
+                return Err(ParseError::InvalidToken {
+                    expected: "expected comma or closing parantheses".to_string(),
+                    got: t,
+                }
+                .into());
+            }
         }
     }
 
-    Err(ParseError::ParseError("invalid column token".to_string()).into())
+    Err(ParseError::ParseError("missing token".to_string()).into())
 }
 
-trait Node {}
+fn parse_table(tokens: &mut Peekable<Lexer>) -> Result<String> {
+    if let Some(t) = tokens.next() {
+        if t != Token::Keyword(Keyword::FROM) {
+            return Err(ParseError::InvalidToken {
+                expected: "expected FROM keyword".to_string(),
+                got: t,
+            }
+            .into());
+        }
+    } else {
+        return Err(ParseError::ParseError("invalid token".to_string()).into());
+    }
 
-struct InsertStatement;
-struct UpdateStatement;
-struct DeleteStatement;
-struct CreateStatement;
+    if let Some(t) = tokens.next() {
+        match t {
+            Token::Ident(i) => Ok(i),
+            t => Err(ParseError::InvalidToken {
+                expected: "expected table identifier".to_string(),
+                got: t,
+            }
+            .into()),
+        }
+    } else {
+        Err(ParseError::ParseError("missing token".to_string()).into())
+    }
+}
+
+fn parse_index(tokens: &mut Peekable<Lexer>) -> Result<Vec<Index>> {
+    todo!()
+}
+
+fn parse_limit(tokens: &mut Peekable<Lexer>) -> Result<Value> {
+    todo!()
+}
+
+trait Node {
+    fn token_literal(&self) -> String;
+}
+
+pub struct InsertStatement;
+pub struct UpdateStatement;
+pub struct DeleteStatement;
+pub struct CreateStatement;
 
 struct Index {
-    lhs: Expression,
-    rhs: Expression,
+    lhs: Value,
+    rhs: Value,
     operator: Operator,
-}
-
-struct Limit {
-    value: Expression,
 }
 
 struct Expression {

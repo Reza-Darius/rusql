@@ -38,17 +38,18 @@ const OFFSETARR_OFFSET: usize = 2;
 const KEY_LEN_OFFSET: usize = 2;
 const VAL_LEN_OFFSET: usize = 2;
 
-/// types of tree nodes
 #[derive(PartialEq, Debug)]
 pub(crate) enum NodeType {
     Node,
     Leaf,
 }
+
 /// which sibling we need to merge with
 pub(crate) enum MergeDirection {
     Left(Arc<Node>),
     Right(Arc<Node>),
 }
+
 #[derive(Debug)]
 pub(crate) struct TreeNode(Box<[u8; NODE_SIZE]>);
 
@@ -89,6 +90,7 @@ impl TreeNode {
             }
         }
     }
+
     /// receive number of keys, this function doesnt check if KV amount aligns with nkeys!
     pub fn get_nkeys(&self) -> u16 {
         self.as_offset_slice(NKEYS_OFFSET).read_u16()
@@ -111,6 +113,7 @@ impl TreeNode {
         let pos: usize = HEADER_OFFSET + PTR_SIZE * idx as usize;
         self.as_offset_slice(pos).read_u64().into()
     }
+
     /// sets pointer at index in pointer array, does not increase nkeys!
     pub fn set_ptr(&mut self, idx: u16, ptr: Pointer) {
         if idx >= self.get_nkeys() {
@@ -182,6 +185,7 @@ impl TreeNode {
 
         Ok(())
     }
+
     /// reads the value from the offset array for a given index, 0 has no offset
     ///
     /// the offset is the last byte of the nth KV relative to the first KV
@@ -225,7 +229,6 @@ impl TreeNode {
             + self.get_offset(idx)?) as usize)
     }
 
-    /// retrieves key as byte array
     pub fn get_key(&self, idx: u16) -> Result<Key, Error> {
         if idx >= self.get_nkeys() {
             error!(
@@ -244,7 +247,6 @@ impl TreeNode {
         Ok(Key::from_encoded_slice(slice))
     }
 
-    /// retrieves value as byte array
     pub fn get_val(&self, idx: u16) -> Result<Value, Error> {
         if let NodeType::Node = self.get_type() {
             return Ok(Value::from_unencoded_str(" "));
@@ -297,7 +299,7 @@ impl TreeNode {
     ///
     /// does not update nkeys!
     #[instrument(skip(self, src))]
-    pub fn append_from_range(
+    fn append_from_range(
         &mut self,
         src: &TreeNode,
         dst_idx: u16,
@@ -339,7 +341,7 @@ impl TreeNode {
         }
     }
 
-    /// abstracted API over leaf_kvinsert and leaf_kvupdate
+    /// entry point for tree insertion
     pub fn insert(
         &mut self,
         node: &TreeNode,
@@ -409,7 +411,7 @@ impl TreeNode {
         self.set_header(NodeType::Leaf, src_nkeys + 1);
         debug!("insert new header: {}", src_nkeys + 1);
 
-        // copy kv before idx
+        // appending before idx
         self.append_from_range(&src, 0, 0, idx).map_err(|e| {
             error!("insertion error when appending before idx");
             e
@@ -418,7 +420,7 @@ impl TreeNode {
         // insert new kv
         self.kvptr_append(idx, Pointer::from(0u64), key, val)?;
 
-        // copy kv after idx
+        // appending after idx
         if src_nkeys > idx {
             self.append_from_range(&src, idx + 1, idx, src_nkeys - idx)
                 .map_err(|e| {
@@ -442,7 +444,7 @@ impl TreeNode {
         let src_nkeys = src.get_nkeys();
         self.set_header(NodeType::Leaf, src_nkeys);
 
-        // copy kv before idx
+        // appending before idk
         self.append_from_range(&src, 0, 0, idx).map_err(|err| {
             error!("kv update error: when appending before idx");
             err
@@ -451,32 +453,37 @@ impl TreeNode {
         // insert new kv
         self.kvptr_append(idx, Pointer::from(0), key, val)?;
 
-        // copy kv after idx
+        // appending after idx
         if src_nkeys > idx + 1 {
-            // in case the updated key is the last key
             self.append_from_range(&src, idx + 1, idx + 1, src_nkeys - (idx + 1))
                 .map_err(|err| {
                     error!("kv update error: when appending after idx");
                     err
                 })?;
         };
+
         Ok(())
     }
+
     /// updates node with source node with kv at idx omitted
     ///
     /// updates nkeys, sets node to leaf
     pub fn leaf_kvdelete(&mut self, src: &TreeNode, idx: u16) -> Result<(), Error> {
         let src_nkeys = src.get_nkeys();
+
         if (src_nkeys - 1) == 0 {
             return Ok(());
         }
 
         self.set_header(NodeType::Leaf, src_nkeys - 1);
+
+        // appending before idx
         self.append_from_range(src, 0, 0, idx).map_err(|err| {
             error!("deletion error when appending before idx");
             err
         })?;
-        // checking indices beyond the one we are modifiying
+
+        // appending after idx
         if src_nkeys > (idx + 1) {
             self.append_from_range(src, idx, idx + 1, src_nkeys - 1 - idx)
                 .map_err(|err| {
@@ -484,11 +491,11 @@ impl TreeNode {
                     err
                 })?;
         }
+
         Ok(())
     }
 
     /// helper function: consumes node and splits it in two
-    #[instrument(skip(self))]
     pub fn split_node(self) -> Result<(TreeNode, TreeNode), Error> {
         let mut left = TreeNode::new();
         let mut right = TreeNode::new();
@@ -498,9 +505,9 @@ impl TreeNode {
         if nkeys < 2 {
             return Err(Error::IndexError);
         }
+        let mut nkeys_left = (nkeys / 2) as usize;
 
         // trying to fit the left half, making sure the new node is not oversized
-        let mut nkeys_left = (nkeys / 2) as usize;
         let left_bytes = |n| -> usize {
             HEADER_OFFSET
                 + POINTER_OFFSET * n
@@ -563,6 +570,7 @@ impl TreeNode {
             arr.push(self);
             return Ok((1, arr)); // no split necessary
         };
+
         // two way split
         debug!("splitting node...");
         let (left, right) = self.split_node().map_err(|err| {
@@ -579,23 +587,28 @@ impl TreeNode {
             arr.push(right);
             return Ok((2, arr));
         };
+
         // three way split
         let (leftleft, middle) = left.split_node().map_err(|err| {
             error!("Could not split node twice: {}", err);
             err
         })?;
+
         warn!(
             "three way split: leftleft = {} bytes, middle = {} bytes, right = {}",
             leftleft.nbytes(),
             middle.nbytes(),
             right.nbytes()
         );
+
         assert!(leftleft.fits_page());
         assert!(middle.fits_page());
         assert!(right.fits_page());
+
         arr.push(leftleft);
         arr.push(middle);
         arr.push(right);
+
         Ok((3, arr))
     }
 
@@ -610,6 +623,7 @@ impl TreeNode {
     ) -> Result<(), Error> {
         let left_nkeys = left.get_nkeys();
         let right_nkeys = right.get_nkeys();
+
         self.set_header(ntype, left_nkeys + right_nkeys);
         self.append_from_range(&left, 0, 0, left_nkeys)
             .map_err(|err| {
@@ -624,6 +638,7 @@ impl TreeNode {
                 );
                 Error::MergeError(format!("{}", err))
             })?;
+
         Ok(())
     }
 

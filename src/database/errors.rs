@@ -5,7 +5,10 @@ use std::{
     str::Utf8Error,
 };
 
-use crate::database::{tables::TypeCol, transactions::keyrange::Touched};
+use crate::{
+    database::{tables::TypeCol, transactions::keyrange::Touched},
+    interpreter::tokens::Token,
+};
 
 use thiserror::Error;
 
@@ -210,4 +213,6 @@ pub(crate) enum TXError {
 pub(crate) enum ParseError {
     #[error("parsing error: {0}")]
     ParseError(String),
+    #[error("expected {expected:?}, got {got:?}")]
+    InvalidToken { expected: String, got: Token },
 }
