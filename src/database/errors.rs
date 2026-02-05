@@ -213,6 +213,6 @@ pub(crate) enum TXError {
 pub(crate) enum ParseError {
     #[error("parsing error: {0}")]
     ParseError(String),
-    #[error("expected {expected:?}, got {got:?}")]
-    InvalidToken { expected: String, got: Token },
+    #[error("expected {expected}, got {got}")]
+    InvalidToken { expected: String, got: String },
 }

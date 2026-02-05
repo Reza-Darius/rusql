@@ -7,36 +7,58 @@ use crate::interpreter::tokens::*;
 
 pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
+    pub current: Token,
+    pub next: Token,
     empty: bool,
-}
-
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.empty {
-            return None;
-        }
-        match self.next_token() {
-            Token::EOF => {
-                self.empty = true;
-                Some(Token::EOF)
-            }
-            token => Some(token),
-        }
-    }
+    first: bool,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         Lexer {
             input: input.chars().peekable(),
+            current: Token::EOF,
+            next: Token::EOF,
             empty: false,
+            first: true,
+        }
+    }
+
+    /// advances iterator
+    pub fn next(&mut self) -> Option<&Token> {
+        let t = self.next_token();
+        if self.first {
+            self.current = t;
+            self.next = self.next_token();
+            self.first = false;
+        } else {
+            self.current = std::mem::take(&mut self.next);
+            self.next = t;
+        }
+
+        debug!(?self.current, "current token");
+        debug!(?self.next, "next token");
+
+        match &self.current {
+            Token::EOF => None,
+            token => Some(token),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
+    }
+
+    pub fn peek(&self) -> Option<&Token> {
+        match &self.next {
+            Token::EOF => None,
+            token => Some(token),
         }
     }
 
     fn next_token(&mut self) -> Token {
         if self.empty {
+            debug!("returning EOF Token");
             return Token::EOF;
         }
 
@@ -46,6 +68,7 @@ impl<'a> Lexer<'a> {
 
         // check for single character token
         if let Some(t) = parse_char(iter) {
+            debug!(?t, "returning token");
             return t;
         }
 
@@ -57,7 +80,9 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring))
+        let t = parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring));
+        debug!(?t, "returning token");
+        t
     }
 }
 
@@ -79,7 +104,17 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             LPAREN => Some(Token::Seperator(Seperator::LParen)),
             RPAREN => Some(Token::Seperator(Seperator::RParen)),
             COMMA => Some(Token::Seperator(Seperator::Comma)),
-            ASSIGN => Some(Token::Operator(Operator::ASSIGN)),
+            ASSIGN => {
+                iter.next();
+                if let Some(c) = iter.peek()
+                    && let ASSIGN = *c
+                {
+                    iter.next();
+                    Some(Token::Operator(Operator::EQUAL))
+                } else {
+                    Some(Token::Operator(Operator::ASSIGN))
+                }
+            }
             PLUS => Some(Token::Operator(Operator::PLUS)),
             MINUS => Some(Token::Operator(Operator::MINUS)),
             MULTI => Some(Token::Operator(Operator::MULTI)),
@@ -117,10 +152,9 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
 fn parse_keyword(string: &str) -> Option<Token> {
     KEYWORDS.with(|e| {
         if let Some(k) = e.get(string.to_ascii_lowercase().as_str()) {
-            debug!(?k, "Keyword found");
+            debug!("Keyword found");
             Some(Token::Keyword(*k))
         } else {
-            debug!(string, "keyword not found");
             None
         }
     })
@@ -164,19 +198,26 @@ mod lexer_test {
     #[test]
     fn token_test2() -> Result<()> {
         let input = "SELECT name FROM my_table WHERE x >= 5";
-        let tokens: Vec<Token> = Lexer::new(input).collect();
-        let mut iter = tokens.into_iter();
+        let mut tokens = Lexer::new(input);
 
-        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::SELECT));
-        assert_eq!(iter.next().unwrap(), Token::Ident("name".to_string()));
-        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::FROM));
-        assert_eq!(iter.next().unwrap(), Token::Ident("my_table".to_string()));
-        assert_eq!(iter.next().unwrap(), Token::Keyword(Keyword::WHERE));
-        assert_eq!(iter.next().unwrap(), Token::Ident("x".to_string()));
-        assert_eq!(iter.next().unwrap(), Token::Operator(Operator::GE));
-        assert_eq!(iter.next().unwrap(), Token::Value(Value::Int(5i64)));
-        assert_eq!(iter.next().unwrap(), Token::EOF);
-        assert!(iter.next().is_none());
+        tokens.next();
+        assert_eq!(tokens.current, Token::Keyword(Keyword::SELECT));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Ident("name".to_string()));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Keyword(Keyword::FROM));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Ident("my_table".to_string()));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Keyword(Keyword::WHERE));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Ident("x".to_string()));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Operator(Operator::GE));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Value(Value::Int(5i64)));
+        tokens.next();
+        assert_eq!(tokens.current, Token::EOF);
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Token {
     Illegal,
     EOF,
@@ -9,17 +9,29 @@ pub enum Token {
     Operator(Operator),
     Seperator(Seperator),
 
-    Ident(String),
+    Ident(String), // columns and table names
     Value(Value),
 }
 
-#[derive(Debug, PartialEq)]
+impl Default for Token {
+    fn default() -> Self {
+        Token::EOF
+    }
+}
+
+impl Token {
+    pub fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Value {
     Int(i64),
     Str(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Keyword {
     SELECT,
     INSERT,
@@ -77,14 +89,17 @@ thread_local! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Operator {
     ASSIGN,
+
     PLUS,
     MINUS,
     MULTI,
     DIVIDE,
     MODULO,
+
+    EQUAL,
     LT,
     LE,
     GT,
@@ -92,15 +107,17 @@ pub enum Operator {
 }
 
 pub const ASSIGN: char = '=';
+
 pub const PLUS: char = '+';
 pub const MINUS: char = '-';
 pub const MULTI: char = '*';
 pub const DIVIDE: char = '/';
 pub const MODULO: char = '%';
+
 pub const LT: char = '<';
 pub const GT: char = '>';
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Seperator {
     LParen,
     RParen,

@@ -77,6 +77,7 @@ pub fn create_file_sync(file: &str) -> Result<OwnedFd, PagerError> {
         OFlags::RDWR | OFlags::CREATE,
         Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
     )?;
+
     // fsync directory
     if parent_exists {
         fs::fsync(&dirfd)?;

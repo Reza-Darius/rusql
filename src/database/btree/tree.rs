@@ -203,6 +203,7 @@ impl<P: Pager> Tree for BTree<P> {
                 self.root_ptr = Some(self.encode(updated));
             }
         }
+
         Ok(res)
     }
 
@@ -236,6 +237,7 @@ impl<P: Pager> BTree<P> {
             len: 0,
         }
     }
+
     // callbacks
     pub fn decode(&self, ptr: Pointer) -> Arc<Node> {
         let strong = self.pager.upgrade().expect("tree callback decode failed");
@@ -405,6 +407,7 @@ impl<P: Pager> BTree<P> {
                             // no merge necessary, or no sibling to merge with
                             None => {
                                 self.dealloc(kptr);
+
                                 // empty child without siblings
                                 if updated_child.get_nkeys() == 0 && cur_nkeys == 1 {
                                     assert!(idx == 0);
@@ -412,6 +415,7 @@ impl<P: Pager> BTree<P> {
                                     new.set_header(NodeType::Node, 0);
                                     return Some(new);
                                 }
+
                                 // no merge, update new child
                                 //
                                 // updating key of node in case the 0th key in child got deleted
@@ -428,8 +432,10 @@ impl<P: Pager> BTree<P> {
                                     new.set_ptr(idx, self.encode(updated_child));
                                     return Some(new);
                                 };
+
                                 let mut new = node.clone();
                                 new.set_ptr(idx, self.encode(updated_child));
+
                                 debug!("key deleted without merge");
                                 Some(new)
                             }
@@ -470,6 +476,7 @@ impl<P: Pager> Debug for BTree<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BTree")
             .field("root_ptr", &self.root_ptr)
+            .field("len", &self.len)
             .finish()
     }
 }
