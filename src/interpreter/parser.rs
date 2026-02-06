@@ -22,7 +22,6 @@ struct Parser<'a> {
 
     prefix_fns: HashMap<Token, PrefixParseFn>,
     infix_fns: HashMap<Token, InfixParseFn>,
-    precedence: HashMap<Token, Precedence>,
 }
 
 impl<'a> Parser<'a> {
@@ -31,44 +30,10 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(input),
             prefix_fns: HashMap::new(),
             infix_fns: HashMap::new(),
-            precedence: HashMap::new(),
         };
 
-        // populating precedence map
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::PLUS), Precedence::Sum);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::MINUS), Precedence::Sum);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::ASSIGN), Precedence::Equals);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::EQUAL), Precedence::Equals);
-
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::DIVIDE), Precedence::Product);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::MULTI), Precedence::Product);
-
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::GT), Precedence::LessGreater);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::GE), Precedence::LessGreater);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::LT), Precedence::LessGreater);
-        parser
-            .precedence
-            .insert(Token::Operator(Operator::LE), Precedence::LessGreater);
-
         // populating function calls
+        // prefix
         parser
             .prefix_fns
             .insert(Token::Operator(Operator::MINUS), parse_prefix_expression);
@@ -76,7 +41,7 @@ impl<'a> Parser<'a> {
             Token::Seperator(Seperator::LParen),
             parse_grouped_expression,
         );
-
+        // infix
         parser
             .infix_fns
             .insert(Token::Operator(Operator::PLUS), parse_infix_expression);
@@ -101,7 +66,16 @@ impl<'a> Parser<'a> {
         parser
             .infix_fns
             .insert(Token::Operator(Operator::LE), parse_infix_expression);
+
         parser
+    }
+
+    fn next(&mut self) -> Option<&Token> {
+        self.lexer.next()
+    }
+
+    fn peek(&mut self) -> Option<&Token> {
+        self.lexer.peek()
     }
 
     pub fn parse_input(&mut self) -> Result<Statement> {
@@ -119,20 +93,23 @@ impl<'a> Parser<'a> {
     }
 
     fn prec_current(&self) -> Precedence {
-        *self
-            .precedence
-            .get(&self.lexer.current)
-            .unwrap_or_else(|| &Precedence::Lowest)
+        check_prec(&self.lexer.current)
+        // *self
+        //     .precedence
+        //     .get(&self.lexer.current)
+        //     .unwrap_or_else(|| &Precedence::Lowest)
     }
 
     fn prec_next(&self) -> Precedence {
-        *self
-            .precedence
-            .get(&self.lexer.next)
-            .unwrap_or_else(|| &Precedence::Lowest)
+        check_prec(&self.lexer.next)
+        // *self
+        //     .precedence
+        //     .get(&self.lexer.next)
+        //     .unwrap_or_else(|| &Precedence::Lowest)
     }
 
     fn parse_expression(&mut self, prec: Precedence) -> Option<Box<dyn Expression>> {
+        debug!(?prec, "parse expression with prec:");
         let mut left_expr: Box<dyn Expression> = match &self.lexer.current {
             Token::EOF => return None,
             t => {
@@ -144,20 +121,49 @@ impl<'a> Parser<'a> {
                 }
             }
         };
+
+        // are we at the end of an expression?
         let end_expr = match &self.lexer.next {
             Token::Keyword(_) => true,
+            Token::EOF => true,
             _ => false,
         };
+
+        debug!(
+            "comparing prec {:?} with prec_next {:?} of token {:?}",
+            prec,
+            self.prec_next(),
+            self.peek()
+        );
         while !end_expr && prec < self.prec_next() {
-            let infix_fn = self.infix_fns.get(&self.lexer.next);
-            if infix_fn.is_none() {
+            if let Some(infix_fn) = self.infix_fns.get(&self.lexer.next) {
+                self.lexer.next();
+                left_expr = infix_fn(self, left_expr)
+            } else {
+                debug!(?left_expr, "returning left expression");
                 return Some(left_expr);
             }
-            self.lexer.next();
-            left_expr = infix_fn.unwrap()(self, left_expr)
         }
 
+        debug!(?left_expr, "returning left expression");
         Some(left_expr)
+    }
+}
+
+fn check_prec(token: &Token) -> Precedence {
+    match *token {
+        Token::Operator(Operator::PLUS) => Precedence::Sum,
+        Token::Operator(Operator::MINUS) => Precedence::Sum,
+        Token::Operator(Operator::MULTI) => Precedence::Product,
+        Token::Operator(Operator::DIVIDE) => Precedence::Product,
+
+        Token::Operator(Operator::EQUAL) => Precedence::Equals,
+
+        Token::Operator(Operator::GT) => Precedence::LessGreater,
+        Token::Operator(Operator::GE) => Precedence::LessGreater,
+        Token::Operator(Operator::LT) => Precedence::LessGreater,
+        Token::Operator(Operator::LE) => Precedence::LessGreater,
+        _ => Precedence::Lowest,
     }
 }
 
@@ -166,13 +172,12 @@ pub struct SelectStatement {
     columns: Vec<String>,
     table: String,
     index: Option<Vec<Index>>,
-    limit: Option<u64>,
+    limit: Option<Box<dyn Expression>>,
 }
 
 // SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7
 fn parse_select(parser: &mut Parser) -> Result<Statement> {
     info!("parsing SELECT statement!");
-    let tokens = &mut parser.lexer;
 
     let mut statement = SelectStatement {
         columns: vec![],
@@ -181,10 +186,10 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
         limit: None,
     };
 
-    statement.columns = parse_columns(tokens)?;
+    statement.columns = parse_columns(parser)?;
 
     // parsing FROM
-    if let Some(t) = tokens.next() {
+    if let Some(t) = parser.next() {
         debug!("parsing {t:?}");
         if *t != Token::Keyword(Keyword::FROM) {
             return Err(ParseError::InvalidToken {
@@ -198,22 +203,22 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
     }
 
     // parsing table ident
-    statement.table = parse_identifier(tokens)?;
+    statement.table = parse_identifier(parser)?;
 
-    tokens.next();
-    if tokens.is_empty() {
+    parser.next();
+    if parser.lexer.is_empty() {
         return Ok(Statement::Select(statement));
     }
 
     // optional index or limit clause
-    match tokens.current {
+    match parser.lexer.current {
         Token::Keyword(Keyword::WHERE) => {
-            debug!("parsing WHERE");
+            debug!("parsing WHERE clause");
             statement.index = Some(parse_index(parser)?);
             ()
         }
         Token::Keyword(Keyword::LIMIT) => {
-            debug!("parsing LIMIT");
+            debug!("parsing LIMIT clause");
             statement.limit = Some(parse_limit(parser)?);
             return Ok(Statement::Select(statement));
         }
@@ -226,21 +231,38 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
         }
     };
 
-    todo!()
+    match parser.lexer.current {
+        Token::Keyword(Keyword::LIMIT) => {
+            debug!("parsing LIMIT clause");
+            statement.limit = Some(parse_limit(parser)?);
+        }
+        ref t => {
+            return Err(ParseError::InvalidToken {
+                expected: "expected WHERE clause".to_string(),
+                got: t.to_string(),
+            }
+            .into());
+        }
+    };
+
+    Ok(Statement::Select(statement))
 }
 
-fn parse_columns(tokens: &mut Lexer) -> Result<Vec<String>> {
+fn parse_columns(parser: &mut Parser) -> Result<Vec<String>> {
     let mut cols: Vec<String> = vec![];
 
-    while let Some(t) = tokens.peek() {
+    while let Some(t) = parser.peek() {
         debug!("parsing {t:?}");
         match t {
             Token::Ident(i) => {
                 cols.push(i.clone());
-                tokens.next();
+                parser.next();
             }
             Token::Keyword(_) => return Ok(cols),
-            Token::Seperator(Seperator::Comma) => continue,
+            Token::Seperator(Seperator::Comma) => {
+                parser.next();
+                continue;
+            }
             t => {
                 return Err(ParseError::InvalidToken {
                     expected: "expected comma or closing parantheses".to_string(),
@@ -255,8 +277,8 @@ fn parse_columns(tokens: &mut Lexer) -> Result<Vec<String>> {
 }
 
 // columns and table names
-fn parse_identifier(tokens: &mut Lexer) -> Result<String> {
-    if let Some(t) = tokens.next() {
+fn parse_identifier(parser: &mut Parser) -> Result<String> {
+    if let Some(t) = parser.next() {
         debug!("parsing {t:?}");
         match t {
             Token::Ident(i) => Ok(i.clone()),
@@ -274,8 +296,8 @@ fn parse_identifier(tokens: &mut Lexer) -> Result<String> {
 fn parse_index(parser: &mut Parser) -> Result<Vec<Index>> {
     let mut result = vec![];
 
-    let column = parse_identifier(&mut parser.lexer)?;
-    let operator = parse_operator(&mut parser.lexer)?;
+    let column = parse_identifier(parser)?;
+    let operator = parse_operator(parser)?;
     parser.lexer.next();
     let expr = parse_expression_statement(parser)
         .ok_or_else(|| ParseError::ParseError("couldnt parse expression".to_string()))?;
@@ -286,12 +308,13 @@ fn parse_index(parser: &mut Parser) -> Result<Vec<Index>> {
         expr,
     };
     result.push(index);
+    parser.next();
     Ok(result)
 }
 
-fn parse_operator(tokens: &mut Lexer) -> Result<Operator> {
+fn parse_operator(parser: &mut Parser) -> Result<Operator> {
     debug!("parsing operator");
-    if let Some(t) = tokens.next() {
+    if let Some(t) = parser.next() {
         match t {
             Token::Operator(Operator::ASSIGN) => Ok(Operator::EQUAL),
             Token::Operator(Operator::EQUAL) => Ok(Operator::EQUAL),
@@ -311,9 +334,11 @@ fn parse_operator(tokens: &mut Lexer) -> Result<Operator> {
     }
 }
 
-fn parse_limit(parser: &mut Parser) -> Result<u64> {
-    // parse expression
-    todo!()
+fn parse_limit(parser: &mut Parser) -> Result<Box<dyn Expression>> {
+    info!("parsing LIMIT clause");
+    parser.next();
+    parse_expression_statement(parser)
+        .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed".to_string()).into())
 }
 
 fn parse_expression_statement(parser: &mut Parser) -> Option<Box<dyn Expression>> {
@@ -336,7 +361,7 @@ fn parse_prefix_expression(parser: &mut Parser) -> Box<dyn Expression> {
             operator: *op,
             rhs: None,
         }),
-        _ => panic!("unexpected token"),
+        _ => panic!("unexpected prefix token"),
     };
     parser.lexer.next();
     expr.rhs = parser.parse_expression(Precedence::Prefix);
@@ -360,7 +385,7 @@ fn parse_infix_expression(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<
             operator: *op,
             rhs: None,
         }),
-        _ => panic!("unexpected token"),
+        _ => panic!("unexpected infix token"),
     };
     let prec = parser.prec_current();
     parser.lexer.next();
@@ -369,11 +394,14 @@ fn parse_infix_expression(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<
 }
 
 fn parse_grouped_expression(parser: &mut Parser) -> Box<dyn Expression> {
-    parser.lexer.next();
+    debug!("parsing grouped expression");
+    parser.next();
     let expr = parser.parse_expression(Precedence::Lowest);
     if parser.lexer.next != Token::Seperator(Seperator::RParen) {
         panic!("expected closing parantheses")
     }
+    parser.next();
+    debug!("returning grouped expression");
     expr.unwrap()
 }
 
@@ -419,8 +447,7 @@ mod parser_test {
 
     #[test]
     fn parser_test1() {
-        let input =
-            "SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7";
+        let input = "SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2) LIMIT -5 + 7";
         let mut parser = Parser::new(input);
         let res = parser.parse_input().unwrap();
         println!("{:?}", res);

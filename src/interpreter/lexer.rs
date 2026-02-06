@@ -59,7 +59,7 @@ impl<'a> Lexer<'a> {
 
     fn next_token(&mut self) -> Token {
         if self.empty {
-            debug!("returning EOF Token");
+            // debug!("returning EOF Token");
             return Token::EOF;
         }
 
@@ -69,7 +69,7 @@ impl<'a> Lexer<'a> {
 
         // check for single character token
         if let Some(t) = parse_char(iter) {
-            debug!(?t, "returning token");
+            // debug!(?t, "returning token");
             iter.next();
             return t;
         }
@@ -77,7 +77,7 @@ impl<'a> Lexer<'a> {
         // create substring
         while let Some(c) = iter.peek() {
             if !c.is_whitespace() && !is_operator(*c) {
-                debug!(%c, "pushing char");
+                // debug!(%c, "pushing char");
                 substring.push(*c);
                 iter.next();
             } else {
@@ -85,14 +85,14 @@ impl<'a> Lexer<'a> {
             }
         }
         let t = parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring));
-        debug!(?t, "returning token");
-        debug!(char = ?iter.peek(), "next char");
+        // debug!(?t, "returning token");
+        // debug!(char = ?iter.peek(), "next char");
         t
     }
 }
 
 fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
-    debug!("skipping whitespace");
+    // debug!("skipping whitespace");
     while let Some(c) = iter.peek() {
         if c.is_whitespace() {
             iter.next();
@@ -103,7 +103,7 @@ fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
 }
 
 fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
-    debug!("parsing char");
+    // debug!("parsing char");
     match iter.peek() {
         Some(c) => match *c {
             LPAREN => Some(Token::Seperator(Seperator::LParen)),
@@ -154,7 +154,7 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
 }
 
 fn is_operator(ch: char) -> bool {
-    debug!(%ch,"peeking char");
+    // debug!(%ch,"peeking char");
     match ch {
         LPAREN => true,
         RPAREN => true,
@@ -175,7 +175,7 @@ fn is_operator(ch: char) -> bool {
 fn parse_keyword(string: &str) -> Option<Token> {
     KEYWORDS.with(|e| {
         if let Some(k) = e.get(string.to_ascii_lowercase().as_str()) {
-            debug!("Keyword found");
+            // debug!("Keyword found");
             Some(Token::Keyword(*k))
         } else {
             None
