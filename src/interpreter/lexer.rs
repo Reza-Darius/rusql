@@ -24,9 +24,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// advances iterator
+    /// advances iterator, returns current token
     pub fn next(&mut self) -> Option<&Token> {
         let t = self.next_token();
+
         if self.first {
             self.current = t;
             self.next = self.next_token();
@@ -69,19 +70,23 @@ impl<'a> Lexer<'a> {
         // check for single character token
         if let Some(t) = parse_char(iter) {
             debug!(?t, "returning token");
+            iter.next();
             return t;
         }
 
         // create substring
-        while let Some(c) = self.input.next() {
-            if !c.is_whitespace() {
-                substring.push(c);
+        while let Some(c) = iter.peek() {
+            if !c.is_whitespace() && !is_operator(*c) {
+                debug!(%c, "pushing char");
+                substring.push(*c);
+                iter.next();
             } else {
                 break;
             }
         }
         let t = parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring));
         debug!(?t, "returning token");
+        debug!(char = ?iter.peek(), "next char");
         t
     }
 }
@@ -121,7 +126,6 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             DIVIDE => Some(Token::Operator(Operator::DIVIDE)),
             MODULO => Some(Token::Operator(Operator::MODULO)),
             LT => {
-                iter.next();
                 if let Some(c) = iter.peek()
                     && let ASSIGN = *c
                 {
@@ -146,6 +150,25 @@ fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             _ => None,
         },
         None => Some(Token::EOF),
+    }
+}
+
+fn is_operator(ch: char) -> bool {
+    debug!(%ch,"peeking char");
+    match ch {
+        LPAREN => true,
+        RPAREN => true,
+        COMMA => true,
+        ASSIGN => true,
+        PLUS => true,
+        MINUS => true,
+        MULTI => true,
+        DIVIDE => true,
+        MODULO => true,
+        LT => true,
+        GT => true,
+
+        _ => false,
     }
 }
 
@@ -197,7 +220,7 @@ mod lexer_test {
 
     #[test]
     fn token_test2() -> Result<()> {
-        let input = "SELECT name FROM my_table WHERE x >= 5";
+        let input = "SELECT name FROM my_table WHERE (x >= 5)";
         let mut tokens = Lexer::new(input);
 
         tokens.next();
@@ -211,11 +234,15 @@ mod lexer_test {
         tokens.next();
         assert_eq!(tokens.current, Token::Keyword(Keyword::WHERE));
         tokens.next();
+        assert_eq!(tokens.current, Token::Seperator(Seperator::LParen));
+        tokens.next();
         assert_eq!(tokens.current, Token::Ident("x".to_string()));
         tokens.next();
         assert_eq!(tokens.current, Token::Operator(Operator::GE));
         tokens.next();
         assert_eq!(tokens.current, Token::Value(Value::Int(5i64)));
+        tokens.next();
+        assert_eq!(tokens.current, Token::Seperator(Seperator::RParen));
         tokens.next();
         assert_eq!(tokens.current, Token::EOF);
 

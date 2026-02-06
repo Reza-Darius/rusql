@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::database::errors::{Error, ParseError, Result};
 use crate::interpreter::{lexer::*, tokens::*};
 
+#[derive(Debug)]
 pub enum Statement {
     Select(SelectStatement),
     Insert(InsertStatement),
@@ -14,14 +15,14 @@ pub enum Statement {
 }
 
 type PrefixParseFn = fn(parser: &mut Parser) -> Box<dyn Expression>;
-type InfixParseFn = fn(parser: &mut Parser, lhs: &dyn Expression) -> Box<dyn Expression>;
+type InfixParseFn = fn(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression>;
 
 struct Parser<'a> {
     lexer: Lexer<'a>,
 
     prefix_fns: HashMap<Token, PrefixParseFn>,
     infix_fns: HashMap<Token, InfixParseFn>,
-    precedence: HashMap<Operator, Precedence>,
+    precedence: HashMap<Token, Precedence>,
 }
 
 impl<'a> Parser<'a> {
@@ -34,41 +35,72 @@ impl<'a> Parser<'a> {
         };
 
         // populating precedence map
-        parser.precedence.insert(Operator::PLUS, Precedence::Sum);
-        parser.precedence.insert(Operator::MINUS, Precedence::Sum);
+        parser
+            .precedence
+            .insert(Token::Operator(Operator::PLUS), Precedence::Sum);
+        parser
+            .precedence
+            .insert(Token::Operator(Operator::MINUS), Precedence::Sum);
+        parser
+            .precedence
+            .insert(Token::Operator(Operator::ASSIGN), Precedence::Equals);
+        parser
+            .precedence
+            .insert(Token::Operator(Operator::EQUAL), Precedence::Equals);
 
         parser
             .precedence
-            .insert(Operator::ASSIGN, Precedence::Equals);
+            .insert(Token::Operator(Operator::DIVIDE), Precedence::Product);
         parser
             .precedence
-            .insert(Operator::EQUAL, Precedence::Equals);
+            .insert(Token::Operator(Operator::MULTI), Precedence::Product);
 
         parser
             .precedence
-            .insert(Operator::DIVIDE, Precedence::Product);
+            .insert(Token::Operator(Operator::GT), Precedence::LessGreater);
         parser
             .precedence
-            .insert(Operator::MULTI, Precedence::Product);
-
+            .insert(Token::Operator(Operator::GE), Precedence::LessGreater);
         parser
             .precedence
-            .insert(Operator::GT, Precedence::LessGreater);
+            .insert(Token::Operator(Operator::LT), Precedence::LessGreater);
         parser
             .precedence
-            .insert(Operator::GE, Precedence::LessGreater);
-        parser
-            .precedence
-            .insert(Operator::LT, Precedence::LessGreater);
-        parser
-            .precedence
-            .insert(Operator::LE, Precedence::LessGreater);
+            .insert(Token::Operator(Operator::LE), Precedence::LessGreater);
 
         // populating function calls
         parser
             .prefix_fns
             .insert(Token::Operator(Operator::MINUS), parse_prefix_expression);
+        parser.prefix_fns.insert(
+            Token::Seperator(Seperator::LParen),
+            parse_grouped_expression,
+        );
 
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::PLUS), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::DIVIDE), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::MULTI), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::EQUAL), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::GT), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::GE), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::LT), parse_infix_expression);
+        parser
+            .infix_fns
+            .insert(Token::Operator(Operator::LE), parse_infix_expression);
         parser
     }
 
@@ -87,38 +119,49 @@ impl<'a> Parser<'a> {
     }
 
     fn prec_current(&self) -> Precedence {
-        let cur = match &self.lexer.current {
-            Token::Operator(op) => op,
-            _ => panic!("unexpected token, expected operator"),
-        };
-        *self.precedence.get(cur).expect("we know it exists")
+        *self
+            .precedence
+            .get(&self.lexer.current)
+            .unwrap_or_else(|| &Precedence::Lowest)
     }
 
     fn prec_next(&self) -> Precedence {
-        let cur = match &self.lexer.next {
-            Token::Operator(op) => op,
-            _ => panic!("unexpected token, expected operator"),
-        };
-        *self.precedence.get(cur).expect("we know it exists")
+        *self
+            .precedence
+            .get(&self.lexer.next)
+            .unwrap_or_else(|| &Precedence::Lowest)
     }
 
     fn parse_expression(&mut self, prec: Precedence) -> Option<Box<dyn Expression>> {
-        let expr_fn = match self.lexer.next() {
-            Some(t) => {
+        let mut left_expr: Box<dyn Expression> = match &self.lexer.current {
+            Token::EOF => return None,
+            t => {
                 debug!("parsing {t:?}");
                 match t {
-                    Token::Value(Value::Int(i)) => return Some(Box::new(*i)),
-                    Token::Value(Value::Str(s)) => return Some(Box::new(s.clone())),
-                    t => self.prefix_fns[t],
+                    Token::Value(Value::Int(i)) => Box::new(*i),
+                    Token::Value(Value::Str(s)) => Box::new(s.clone()),
+                    t => self.prefix_fns[t](self),
                 }
             }
-            None => return None,
         };
+        let end_expr = match &self.lexer.next {
+            Token::Keyword(_) => true,
+            _ => false,
+        };
+        while !end_expr && prec < self.prec_next() {
+            let infix_fn = self.infix_fns.get(&self.lexer.next);
+            if infix_fn.is_none() {
+                return Some(left_expr);
+            }
+            self.lexer.next();
+            left_expr = infix_fn.unwrap()(self, left_expr)
+        }
 
-        Some(expr_fn(self))
+        Some(left_expr)
     }
 }
 
+#[derive(Debug)]
 pub struct SelectStatement {
     columns: Vec<String>,
     table: String,
@@ -126,8 +169,9 @@ pub struct SelectStatement {
     limit: Option<u64>,
 }
 
-// SELECT col FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7
+// SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7
 fn parse_select(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing SELECT statement!");
     let tokens = &mut parser.lexer;
 
     let mut statement = SelectStatement {
@@ -138,6 +182,22 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
     };
 
     statement.columns = parse_columns(tokens)?;
+
+    // parsing FROM
+    if let Some(t) = tokens.next() {
+        debug!("parsing {t:?}");
+        if *t != Token::Keyword(Keyword::FROM) {
+            return Err(ParseError::InvalidToken {
+                expected: "expected FROM keyword".to_string(),
+                got: t.to_string(),
+            }
+            .into());
+        }
+    } else {
+        return Err(ParseError::ParseError("invalid token".to_string()).into());
+    }
+
+    // parsing table ident
     statement.table = parse_identifier(tokens)?;
 
     tokens.next();
@@ -148,10 +208,12 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
     // optional index or limit clause
     match tokens.current {
         Token::Keyword(Keyword::WHERE) => {
+            debug!("parsing WHERE");
             statement.index = Some(parse_index(parser)?);
             ()
         }
         Token::Keyword(Keyword::LIMIT) => {
+            debug!("parsing LIMIT");
             statement.limit = Some(parse_limit(parser)?);
             return Ok(Statement::Select(statement));
         }
@@ -170,11 +232,12 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
 fn parse_columns(tokens: &mut Lexer) -> Result<Vec<String>> {
     let mut cols: Vec<String> = vec![];
 
-    while let Some(t) = tokens.next() {
+    while let Some(t) = tokens.peek() {
         debug!("parsing {t:?}");
         match t {
             Token::Ident(i) => {
                 cols.push(i.clone());
+                tokens.next();
             }
             Token::Keyword(_) => return Ok(cols),
             Token::Seperator(Seperator::Comma) => continue,
@@ -195,19 +258,6 @@ fn parse_columns(tokens: &mut Lexer) -> Result<Vec<String>> {
 fn parse_identifier(tokens: &mut Lexer) -> Result<String> {
     if let Some(t) = tokens.next() {
         debug!("parsing {t:?}");
-        if *t != Token::Keyword(Keyword::FROM) {
-            return Err(ParseError::InvalidToken {
-                expected: "expected FROM keyword".to_string(),
-                got: t.to_string(),
-            }
-            .into());
-        }
-    } else {
-        return Err(ParseError::ParseError("invalid token".to_string()).into());
-    }
-
-    if let Some(t) = tokens.next() {
-        debug!("parsing {t:?}");
         match t {
             Token::Ident(i) => Ok(i.clone()),
             t => Err(ParseError::InvalidToken {
@@ -222,19 +272,25 @@ fn parse_identifier(tokens: &mut Lexer) -> Result<String> {
 }
 
 fn parse_index(parser: &mut Parser) -> Result<Vec<Index>> {
-    // parse identifier
-    let mut index = Index {
-        column: parse_identifier(&mut parser.lexer)?,
-        operator: parse_operator(&mut parser.lexer)?,
-        expr: todo!(),
+    let mut result = vec![];
+
+    let column = parse_identifier(&mut parser.lexer)?;
+    let operator = parse_operator(&mut parser.lexer)?;
+    parser.lexer.next();
+    let expr = parse_expression_statement(parser)
+        .ok_or_else(|| ParseError::ParseError("couldnt parse expression".to_string()))?;
+
+    let index = Index {
+        column,
+        operator,
+        expr,
     };
-    // parse equal operator
-    // parse expression
-    let expr = parser.parse_expression(Precedence::Lowest);
-    todo!()
+    result.push(index);
+    Ok(result)
 }
 
 fn parse_operator(tokens: &mut Lexer) -> Result<Operator> {
+    debug!("parsing operator");
     if let Some(t) = tokens.next() {
         match t {
             Token::Operator(Operator::ASSIGN) => Ok(Operator::EQUAL),
@@ -260,42 +316,76 @@ fn parse_limit(parser: &mut Parser) -> Result<u64> {
     todo!()
 }
 
+fn parse_expression_statement(parser: &mut Parser) -> Option<Box<dyn Expression>> {
+    info!(?parser.lexer.current, ?parser.lexer.next, "parsing expression statement");
+    let expr = parser.parse_expression(Precedence::Lowest);
+    expr
+}
+
 #[derive(Debug)]
 struct PrefixExpression {
     operator: Operator,
-    rhs: Box<dyn Expression>,
+    rhs: Option<Box<dyn Expression>>,
 }
 
 impl Expression for PrefixExpression {}
 
 fn parse_prefix_expression(parser: &mut Parser) -> Box<dyn Expression> {
-    match &parser.lexer.current {
+    let mut expr = match &parser.lexer.current {
         Token::Operator(op) => Box::new(PrefixExpression {
             operator: *op,
-            rhs: parser.parse_expression(Precedence::Prefix).unwrap(),
+            rhs: None,
         }),
         _ => panic!("unexpected token"),
-    }
+    };
+    parser.lexer.next();
+    expr.rhs = parser.parse_expression(Precedence::Prefix);
+    expr
 }
 
 #[derive(Debug)]
 struct InfixExpression {
-    lhs: Box<dyn Expression>,
-    operator: Token,
-    rhs: Box<dyn Expression>,
+    lhs: Option<Box<dyn Expression>>,
+    operator: Operator,
+    rhs: Option<Box<dyn Expression>>,
 }
 
 impl Expression for InfixExpression {}
 
-fn parse_infix_expression(parser: &mut Parser) -> Box<dyn Expression> {
-    todo!()
+fn parse_infix_expression(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression> {
+    info!("parsing infix expression");
+    let mut expr = match &parser.lexer.current {
+        Token::Operator(op) => Box::new(InfixExpression {
+            lhs: Some(lhs),
+            operator: *op,
+            rhs: None,
+        }),
+        _ => panic!("unexpected token"),
+    };
+    let prec = parser.prec_current();
+    parser.lexer.next();
+    expr.rhs = parser.parse_expression(prec);
+    expr
 }
 
-pub struct InsertStatement;
-pub struct UpdateStatement;
-pub struct DeleteStatement;
-pub struct CreateStatement;
+fn parse_grouped_expression(parser: &mut Parser) -> Box<dyn Expression> {
+    parser.lexer.next();
+    let expr = parser.parse_expression(Precedence::Lowest);
+    if parser.lexer.next != Token::Seperator(Seperator::RParen) {
+        panic!("expected closing parantheses")
+    }
+    expr.unwrap()
+}
 
+#[derive(Debug)]
+pub struct InsertStatement;
+#[derive(Debug)]
+pub struct UpdateStatement;
+#[derive(Debug)]
+pub struct DeleteStatement;
+#[derive(Debug)]
+pub struct CreateStatement;
+#[derive(Debug)]
 struct Index {
     column: String,
     operator: Operator,
@@ -312,7 +402,7 @@ impl Expression for i64 {}
 struct IntLiteral(i64);
 struct StrLiteral(String);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum Precedence {
     Lowest,
     Equals,
@@ -320,4 +410,19 @@ enum Precedence {
     Sum,
     Product,
     Prefix,
+}
+
+#[cfg(test)]
+mod parser_test {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn parser_test1() {
+        let input =
+            "SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7";
+        let mut parser = Parser::new(input);
+        let res = parser.parse_input().unwrap();
+        println!("{:?}", res);
+    }
 }
