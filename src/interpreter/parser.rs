@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use tracing::{debug, info};
 
@@ -14,58 +13,57 @@ pub enum Statement {
     Create(CreateStatement),
 }
 
-type PrefixParseFn = fn(parser: &mut Parser) -> Box<dyn Expression>;
-type InfixParseFn = fn(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression>;
+// type PrefixParseFn = fn(parser: &mut Parser) -> Box<dyn Expression>;
+// type InfixParseFn = fn(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression>;
 
 struct Parser<'a> {
     lexer: Lexer<'a>,
-
-    prefix_fns: HashMap<Token, PrefixParseFn>,
-    infix_fns: HashMap<Token, InfixParseFn>,
+    // prefix_fns: HashMap<Token, PrefixParseFn>,
+    // infix_fns: HashMap<Token, InfixParseFn>,
 }
 
 impl<'a> Parser<'a> {
     fn new(input: &'a str) -> Self {
-        let mut parser = Parser {
+        let parser = Parser {
             lexer: Lexer::new(input),
-            prefix_fns: HashMap::new(),
-            infix_fns: HashMap::new(),
+            // prefix_fns: HashMap::new(),
+            // infix_fns: HashMap::new(),
         };
 
-        // populating function calls
-        // prefix
-        parser
-            .prefix_fns
-            .insert(Token::Operator(Operator::MINUS), parse_prefix_expression);
-        parser.prefix_fns.insert(
-            Token::Seperator(Seperator::LParen),
-            parse_grouped_expression,
-        );
-        // infix
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::PLUS), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::DIVIDE), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::MULTI), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::EQUAL), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::GT), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::GE), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::LT), parse_infix_expression);
-        parser
-            .infix_fns
-            .insert(Token::Operator(Operator::LE), parse_infix_expression);
+        // // populating function calls
+        // // prefix
+        // parser
+        //     .prefix_fns
+        //     .insert(Token::Operator(Operator::MINUS), parse_prefix_expression);
+        // parser.prefix_fns.insert(
+        //     Token::Seperator(Seperator::LParen),
+        //     parse_grouped_expression,
+        // );
+        // // infix
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::PLUS), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::DIVIDE), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::MULTI), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::EQUAL), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::GT), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::GE), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::LT), parse_infix_expression);
+        // parser
+        //     .infix_fns
+        //     .insert(Token::Operator(Operator::LE), parse_infix_expression);
 
         parser
     }
@@ -115,9 +113,9 @@ impl<'a> Parser<'a> {
             t => {
                 debug!("parsing {t:?}");
                 match t {
-                    Token::Value(Value::Int(i)) => Box::new(*i),
-                    Token::Value(Value::Str(s)) => Box::new(s.clone()),
-                    t => self.prefix_fns[t](self),
+                    Token::Value(Value::Int(i)) => Box::new(IntLiteral(i.clone())),
+                    Token::Value(Value::Str(s)) => Box::new(StrLiteral(s.clone())),
+                    t => get_prefix_fn(t)(self),
                 }
             }
         };
@@ -125,7 +123,7 @@ impl<'a> Parser<'a> {
         // are we at the end of an expression?
         let end_expr = match &self.lexer.next {
             Token::Keyword(_) => true,
-            Token::EOF => true,
+            Token::Seperator(Seperator::Semicolon) => true,
             _ => false,
         };
 
@@ -135,12 +133,16 @@ impl<'a> Parser<'a> {
             self.prec_next(),
             self.peek()
         );
+
         while !end_expr && prec < self.prec_next() {
-            if let Some(infix_fn) = self.infix_fns.get(&self.lexer.next) {
+            if let Some(infix_fn) = get_infix_fn(&self.lexer.next) {
                 self.lexer.next();
                 left_expr = infix_fn(self, left_expr)
             } else {
-                debug!(?left_expr, "returning left expression");
+                debug!(
+                    ?left_expr,
+                    "no infix function found, returning left expression"
+                );
                 return Some(left_expr);
             }
         }
@@ -167,6 +169,32 @@ fn check_prec(token: &Token) -> Precedence {
     }
 }
 
+fn get_prefix_fn(token: &Token) -> fn(parser: &mut Parser) -> Box<dyn Expression> {
+    match token {
+        Token::Operator(Operator::MINUS) => parse_prefix_expression,
+        Token::Seperator(Seperator::LParen) => parse_grouped_expression,
+        _ => panic!("unexpected token for get prefix fn"),
+    }
+}
+
+fn get_infix_fn(
+    token: &Token,
+) -> Option<fn(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression>> {
+    match token {
+        Token::Operator(Operator::PLUS) => Some(parse_infix_expression),
+        Token::Operator(Operator::MINUS) => Some(parse_infix_expression),
+        Token::Operator(Operator::MULTI) => Some(parse_infix_expression),
+        Token::Operator(Operator::EQUAL) => Some(parse_infix_expression),
+        Token::Operator(Operator::MODULO) => Some(parse_infix_expression),
+
+        Token::Operator(Operator::GT) => Some(parse_infix_expression),
+        Token::Operator(Operator::GE) => Some(parse_infix_expression),
+        Token::Operator(Operator::LT) => Some(parse_infix_expression),
+        Token::Operator(Operator::LE) => Some(parse_infix_expression),
+        _ => None,
+    }
+}
+
 #[derive(Debug)]
 pub struct SelectStatement {
     columns: Vec<String>,
@@ -175,7 +203,7 @@ pub struct SelectStatement {
     limit: Option<Box<dyn Expression>>,
 }
 
-// SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7
+// SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7;
 fn parse_select(parser: &mut Parser) -> Result<Statement> {
     info!("parsing SELECT statement!");
 
@@ -206,7 +234,7 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
     statement.table = parse_identifier(parser)?;
 
     parser.next();
-    if parser.lexer.is_empty() {
+    if parser.lexer.current == Token::Seperator(Seperator::Semicolon) {
         return Ok(Statement::Select(statement));
     }
 
@@ -246,6 +274,22 @@ fn parse_select(parser: &mut Parser) -> Result<Statement> {
     };
 
     Ok(Statement::Select(statement))
+}
+
+fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
+    if let Some(t) = parser.next() {
+        debug!("parsing {t:?}");
+        if *t == expected {
+            return Ok(());
+        } else {
+            return Err(ParseError::InvalidToken {
+                expected: expected.to_string(),
+                got: t.to_string(),
+            }
+            .into());
+        }
+    };
+    return Err(ParseError::ParseError("expected token".to_string()).into());
 }
 
 fn parse_columns(parser: &mut Parser) -> Result<Vec<String>> {
@@ -353,7 +397,11 @@ struct PrefixExpression {
     rhs: Option<Box<dyn Expression>>,
 }
 
-impl Expression for PrefixExpression {}
+impl Expression for PrefixExpression {
+    fn into_type(self) -> ExprType {
+        ExprType::Prefix(self)
+    }
+}
 
 fn parse_prefix_expression(parser: &mut Parser) -> Box<dyn Expression> {
     let mut expr = match &parser.lexer.current {
@@ -375,7 +423,11 @@ struct InfixExpression {
     rhs: Option<Box<dyn Expression>>,
 }
 
-impl Expression for InfixExpression {}
+impl Expression for InfixExpression {
+    fn into_type(self) -> ExprType {
+        ExprType::Infix(self)
+    }
+}
 
 fn parse_infix_expression(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression> {
     info!("parsing infix expression");
@@ -420,15 +472,34 @@ struct Index {
     expr: Box<dyn Expression>,
 }
 
-trait Expression: Debug {}
+enum ExprType {
+    Infix(InfixExpression),
+    Prefix(PrefixExpression),
+    IntLiteral(String),
+    StrLiteral(String),
+}
 
-impl Expression for Value {}
-impl Expression for &str {}
-impl Expression for String {}
-impl Expression for i64 {}
+trait Expression: Debug {
+    fn into_type(self) -> ExprType;
+}
 
-struct IntLiteral(i64);
+#[derive(Debug)]
+struct IntLiteral(String);
+
+impl Expression for IntLiteral {
+    fn into_type(self) -> ExprType {
+        ExprType::IntLiteral(self.0)
+    }
+}
+
+#[derive(Debug)]
 struct StrLiteral(String);
+
+impl Expression for StrLiteral {
+    fn into_type(self) -> ExprType {
+        ExprType::StrLiteral(self.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum Precedence {

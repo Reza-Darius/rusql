@@ -27,7 +27,7 @@ impl Token {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Value {
-    Int(i64),
+    Int(String),
     Str(String),
 }
 
@@ -122,8 +122,10 @@ pub enum Seperator {
     LParen,
     RParen,
     Comma,
+    Semicolon,
 }
 
 pub const LPAREN: char = '(';
 pub const RPAREN: char = ')';
 pub const COMMA: char = ',';
+pub const SEMICOLON: char = ';';

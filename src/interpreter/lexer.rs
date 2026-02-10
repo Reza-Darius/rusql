@@ -68,7 +68,7 @@ impl<'a> Lexer<'a> {
         skip_whitespace(iter);
 
         // check for single character token
-        if let Some(t) = parse_char(iter) {
+        if let Some(t) = lex_char(iter) {
             // debug!(?t, "returning token");
             iter.next();
             return t;
@@ -84,7 +84,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        let t = parse_keyword(&substring).unwrap_or_else(|| parse_value(&substring));
+        let t = lex_keyword(&substring).unwrap_or_else(|| lex_value(&substring));
         // debug!(?t, "returning token");
         // debug!(char = ?iter.peek(), "next char");
         t
@@ -102,7 +102,7 @@ fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
     }
 }
 
-fn parse_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
+fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
     // debug!("parsing char");
     match iter.peek() {
         Some(c) => match *c {
@@ -172,7 +172,7 @@ fn is_operator(ch: char) -> bool {
     }
 }
 
-fn parse_keyword(string: &str) -> Option<Token> {
+fn lex_keyword(string: &str) -> Option<Token> {
     KEYWORDS.with(|e| {
         if let Some(k) = e.get(string.to_ascii_lowercase().as_str()) {
             // debug!("Keyword found");
@@ -183,12 +183,12 @@ fn parse_keyword(string: &str) -> Option<Token> {
     })
 }
 
-fn parse_value(string: &str) -> Token {
+fn lex_value(string: &str) -> Token {
     if string.starts_with('"') && string.ends_with('"') {
         return Token::Value(Value::Str(string.trim_matches('"').to_string()));
     }
     if let Ok(int) = string.parse::<i64>() {
-        Token::Value(Value::Int(int))
+        Token::Value(Value::Int(string.to_owned()))
     } else {
         Token::Ident(string.to_string())
     }
@@ -240,7 +240,7 @@ mod lexer_test {
         tokens.next();
         assert_eq!(tokens.current, Token::Operator(Operator::GE));
         tokens.next();
-        assert_eq!(tokens.current, Token::Value(Value::Int(5i64)));
+        assert_eq!(tokens.current, Token::Value(Value::Int(5i64.to_string())));
         tokens.next();
         assert_eq!(tokens.current, Token::Seperator(Seperator::RParen));
         tokens.next();
