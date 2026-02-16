@@ -1,29 +1,24 @@
 use std::collections::HashMap;
-use std::process::Termination;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::Ordering::Relaxed as R;
-use std::sync::{Arc, Weak};
 
-use parking_lot::RwLock;
 use rustix::fs::fsync;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, warn};
 
 use super::metapage::*;
 use crate::database::BTree;
 use crate::database::btree::Tree;
-use crate::database::errors::{Error, PagerError, Result, TXError};
+use crate::database::errors::{PagerError, Result, TXError};
+use crate::database::pager::DiskPager;
 use crate::database::pager::diskpager::PageOrigin;
 use crate::database::pager::freelist::GC;
-use crate::database::pager::metapage::*;
 use crate::database::pager::mmap::mmap_extend;
-use crate::database::pager::{DiskPager, Pager};
-use crate::database::tables::{Record, Value};
 use crate::database::transactions::keyrange::{KeyRange, Touched};
 use crate::database::transactions::kvdb::KVDB;
 use crate::database::transactions::tx::{TX, TXKind};
 use crate::database::transactions::txdb::TXDB;
 use crate::database::types::PAGE_SIZE;
-use crate::database::{btree::ScanMode, tables::Key, types::Pointer};
 use crate::debug_if_env;
 
 pub struct TXHistory {

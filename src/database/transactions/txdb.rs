@@ -50,6 +50,7 @@ impl TXDB {
             },
         }
     }
+
     fn debug_print(&self) {
         debug_if_env!("RUSQL_LOG_TX", {
             debug!("{:-<10}", "-");

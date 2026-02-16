@@ -32,6 +32,7 @@ use tracing::{debug, error, info, instrument};
  * User Input -> DataCell -> Record -> Key, Value -> Tree
  */
 
+// table which houses all the table schemas
 pub const DEF_TABLE_NAME: &'static str = "tdef";
 pub const DEF_TABLE_COL1: &'static str = "name";
 pub const DEF_TABLE_COL2: &'static str = "def";
@@ -40,6 +41,7 @@ pub const DEF_TABLE_ID: u32 = 1;
 pub const DEF_TABLE_VERSION: u64 = 0;
 pub const DEF_TABLE_PKEYS: u16 = 1;
 
+// table which housess meta information like table ids
 pub const META_TABLE_NAME: &'static str = "tmeta";
 pub const META_TABLE_COL1: &'static str = "name";
 pub const META_TABLE_COL2: &'static str = "tid";

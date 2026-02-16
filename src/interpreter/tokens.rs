@@ -69,6 +69,7 @@ pub const LIMIT: &'static str = "limit";
 thread_local! {
     pub static KEYWORDS: HashMap<&'static str, Keyword> =  {
         let mut map = HashMap::new();
+
         map.insert(SELECT, Keyword::SELECT);
         map.insert(INSERT, Keyword::INSERT);
         map.insert(UPDATE, Keyword::UPDATE);
@@ -85,6 +86,7 @@ thread_local! {
         map.insert(INTO, Keyword::INTO);
         map.insert(WHERE, Keyword::WHERE);
         map.insert(LIMIT, Keyword::LIMIT);
+
         map
     }
 }

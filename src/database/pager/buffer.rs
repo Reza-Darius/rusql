@@ -1,10 +1,8 @@
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
-use parking_lot::Mutex;
 use tracing::{debug, error};
 
 use crate::database::{

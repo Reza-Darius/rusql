@@ -16,7 +16,7 @@ pub struct Mmap {
 #[derive(Debug)]
 pub struct Chunk {
     data: *const u8, // pointer to start of memory mapping
-    pub len: usize,  // len of memory mapping
+    len: usize,      // len of memory mapping
 }
 
 impl Deref for Chunk {
@@ -30,6 +30,10 @@ impl Deref for Chunk {
 impl Chunk {
     pub fn to_slice(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.data, self.len) }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 }
 

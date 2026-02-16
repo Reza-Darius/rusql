@@ -178,7 +178,7 @@ pub(crate) struct ScanIter<'a, P: Pager> {
     finished: bool,
 }
 
-impl<'a, P: Pager> ScanIter<'a, P> {
+impl<P: Pager> ScanIter<'_, P> {
     pub fn collect_records(self) -> Vec<Record> {
         self.into_iter().map(|kv| Record::from_kv(kv)).collect()
     }

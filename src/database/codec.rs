@@ -4,8 +4,6 @@
 
 use std::sync::Arc;
 
-use tracing::debug;
-
 use super::tables::TypeCol;
 
 /*

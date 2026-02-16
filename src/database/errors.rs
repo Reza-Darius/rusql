@@ -1,14 +1,6 @@
-use std::{
-    fmt::{Debug, Display},
-    io,
-    num::TryFromIntError,
-    str::Utf8Error,
-};
+use std::{fmt::Debug, io, num::TryFromIntError, str::Utf8Error};
 
-use crate::{
-    database::{tables::TypeCol, transactions::keyrange::Touched},
-    interpreter::tokens::Token,
-};
+use crate::database::tables::TypeCol;
 
 use thiserror::Error;
 

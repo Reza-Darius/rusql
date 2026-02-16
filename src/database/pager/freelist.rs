@@ -1,19 +1,19 @@
-use parking_lot::{Mutex, RwLockWriteGuard};
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Weak};
 
-use crate::database::codec::{NumDecode, NumEncode};
-use crate::database::pager::DiskPager;
-use crate::database::pager::diskpager::{GCCallbacks, NodeFlag, Pager};
-use crate::database::types::{FREE_PAGE, Node, VER_SIZE};
-use crate::database::{
-    btree::TreeNode,
-    errors::FLError,
-    types::{PAGE_SIZE, PTR_SIZE, Pointer},
-};
-use crate::debug_if_env;
 use tracing::{debug, warn};
+
+use crate::{
+    database::{
+        btree::TreeNode,
+        codec::{NumDecode, NumEncode},
+        errors::FLError,
+        pager::{DiskPager, NodeFlag, diskpager::GCCallbacks},
+        types::{FREE_PAGE, Node, PAGE_SIZE, PTR_SIZE, Pointer, VER_SIZE},
+    },
+    debug_if_env,
+};
 
 pub(crate) struct FreeList {
     pub pager: Weak<DiskPager>,

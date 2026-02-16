@@ -1,17 +1,6 @@
-use std::{
-    collections::HashMap,
-    rc::Rc,
-    sync::{Arc, atomic::AtomicU64},
-};
+use std::sync::Arc;
 
-use parking_lot::RwLock;
-
-use crate::database::{
-    BTree,
-    pager::{BufferEntry, DiskPager, MetaPage},
-    transactions::kvdb::KVDB,
-    types::Pointer,
-};
+use crate::database::transactions::kvdb::KVDB;
 
 // outward API
 trait DatabaseAPI {

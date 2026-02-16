@@ -36,7 +36,7 @@ impl Key {
 
     pub fn iter(&self) -> KeyIterRef<'_> {
         KeyIterRef {
-            data: self,
+            data: &self.0,
             count: TID_LEN + PREFIX_LEN,
         }
     }
@@ -222,6 +222,13 @@ impl<'a> KeyRef<'a> {
                 .expect("this cant fail"),
         )
     }
+
+    pub fn iter(&self) -> KeyIterRef<'_> {
+        KeyIterRef {
+            data: self.0,
+            count: TID_LEN + PREFIX_LEN,
+        }
+    }
 }
 
 pub enum DataCellRef<'a> {
@@ -230,7 +237,7 @@ pub enum DataCellRef<'a> {
 }
 
 pub(crate) struct KeyIterRef<'a> {
-    data: &'a Key,
+    data: &'a [u8],
     count: usize,
 }
 
@@ -238,9 +245,9 @@ impl<'a> Iterator for KeyIterRef<'a> {
     type Item = DataCellRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let buf = &self.data.0;
+        let buf = &self.data;
 
-        if self.count >= self.data.0.len() {
+        if self.count >= self.data.len() {
             return None;
         }
 

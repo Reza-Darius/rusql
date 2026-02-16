@@ -12,4 +12,4 @@ A minimal, from-scratch database engine in Rust.
 - Supports tables and secondary indices
 - Concurrent transactions through MVCC
 - Read optimized through shared LRU cache
-- hand rolled lexer and prett parser for SQL
+- Hand rolled lexer and prett parser for SQL

@@ -517,7 +517,6 @@ mod tables {
     use crate::database::{
         btree::{Compare, ScanMode, SetFlag},
         pager::transaction::Transaction,
-        pager::{DiskPager, mempage_tree},
         tables::{Query, Record, TypeCol, tables::TableBuilder},
         transactions::{kvdb::KVDB, tx::TXKind},
         types::DataCell,

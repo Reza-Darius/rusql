@@ -57,6 +57,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    pub fn current(&self) -> Option<&Token> {
+        match &self.current {
+            Token::EOF => None,
+            token => Some(token),
+        }
+    }
+
     fn next_token(&mut self) -> Token {
         if self.empty {
             // debug!("returning EOF Token");
@@ -109,6 +116,8 @@ fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             LPAREN => Some(Token::Seperator(Seperator::LParen)),
             RPAREN => Some(Token::Seperator(Seperator::RParen)),
             COMMA => Some(Token::Seperator(Seperator::Comma)),
+            SEMICOLON => Some(Token::Seperator(Seperator::Semicolon)),
+
             ASSIGN => {
                 iter.next();
                 if let Some(c) = iter.peek()
@@ -153,12 +162,15 @@ fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
     }
 }
 
+// is the next char an operator?
 fn is_operator(ch: char) -> bool {
     // debug!(%ch,"peeking char");
     match ch {
         LPAREN => true,
         RPAREN => true,
         COMMA => true,
+        SEMICOLON => true,
+
         ASSIGN => true,
         PLUS => true,
         MINUS => true,
@@ -220,30 +232,31 @@ mod lexer_test {
 
     #[test]
     fn token_test2() -> Result<()> {
-        let input = "SELECT name FROM my_table WHERE (x >= 5)";
+        let input = "SELECT name FROM my_table WHERE (x >= 5);";
         let mut tokens = Lexer::new(input);
 
-        tokens.next();
-        assert_eq!(tokens.current, Token::Keyword(Keyword::SELECT));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Ident("name".to_string()));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Keyword(Keyword::FROM));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Ident("my_table".to_string()));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Keyword(Keyword::WHERE));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Seperator(Seperator::LParen));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Ident("x".to_string()));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Operator(Operator::GE));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Value(Value::Int(5i64.to_string())));
-        tokens.next();
-        assert_eq!(tokens.current, Token::Seperator(Seperator::RParen));
-        tokens.next();
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::SELECT));
+        assert_eq!(*tokens.next().unwrap(), Token::Ident("name".to_string()));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::FROM));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Ident("my_table".to_string())
+        );
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::WHERE));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::LParen));
+        assert_eq!(*tokens.next().unwrap(), Token::Ident("x".to_string()));
+        assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::GE));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Value(Value::Int(5i64.to_string()))
+        );
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::RParen));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Seperator(Seperator::Semicolon)
+        );
+
+        assert!(tokens.next().is_none());
         assert_eq!(tokens.current, Token::EOF);
 
         Ok(())

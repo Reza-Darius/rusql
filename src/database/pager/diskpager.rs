@@ -1,31 +1,26 @@
-use std::cell::{Cell, Ref, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::fd::OwnedFd;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-use parking_lot::{Mutex, RawRwLock, RwLock, RwLockWriteGuard};
-use parking_lot::{MutexGuard, ReentrantMutex};
+use parking_lot::MutexGuard;
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use rustix::fs::{fstat, fsync, ftruncate};
-use rustix::mm::msync;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 use crate::create_file_sync;
-use crate::database::BTree;
-use crate::database::errors::FLError;
-use crate::database::helper::as_page;
-use crate::database::pager::buffer::{DiskBuffer, OngoingTX, SharedBuffer};
-use crate::database::pager::freelist::{FLConfig, FLNode, FreeList, GC};
-use crate::database::pager::lru::{LRU, debug_print};
-use crate::database::pager::metapage::*;
-use crate::database::pager::mmap::*;
-use crate::database::pager::transaction::TXHistory;
-use crate::database::tables::{Key, Record, Value};
-use crate::database::transactions::tx::TX;
 use crate::database::{
-    btree::{SetFlag, Tree, TreeNode},
+    btree::TreeNode,
     errors::{Error, PagerError},
+    helper::as_page,
+    pager::{
+        buffer::{DiskBuffer, OngoingTX, SharedBuffer},
+        freelist::{FLConfig, FLNode, FreeList, GC},
+        metapage::*,
+        mmap::*,
+        transaction::TXHistory,
+    },
+    transactions::tx::TX,
     types::*,
 };
 
@@ -224,7 +219,7 @@ impl DiskPager {
 
         let mut start: usize = 0;
         for chunk in mmap_ref.chunks.iter() {
-            let end = start + chunk.len / PAGE_SIZE;
+            let end = start + chunk.len() / PAGE_SIZE;
             if ptr.0 < end as u64 {
                 let offset: usize = PAGE_SIZE * (ptr.0 as usize - start);
 
@@ -804,13 +799,10 @@ mod trunc_count_test {
 
 #[cfg(test)]
 mod truncate {
-    use crate::database::{
-        helper::cleanup_file,
-        pager::{freelist, transaction::Transaction},
-    };
+    use crate::database::helper::cleanup_file;
 
     use super::*;
-    use rustix::io::{pwrite, pwritev2};
+    use rustix::io::pwrite;
     use test_log::test;
 
     #[test]
