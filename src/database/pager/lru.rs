@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, ptr::null_mut, sync::Arc};
+use std::{collections::HashMap, fmt::Display, marker::PhantomData, ptr::null_mut, sync::Arc};
 
 use crate::database::types::Pointer;
 
@@ -80,7 +80,7 @@ where
 
     pub fn iter(&self) -> LRUIter<'_, K, V> {
         LRUIter {
-            lru: self,
+            _boo: PhantomData,
             ptr: self.ll.head,
         }
     }
@@ -245,8 +245,8 @@ pub(crate) struct LRUIter<'a, K, V>
 where
     K: Eq + std::hash::Hash + Copy,
 {
-    lru: &'a LRU<K, V>,
     ptr: *mut Node<K, V>,
+    _boo: PhantomData<(&'a K, &'a V)>,
 }
 
 impl<'a, K, V> Iterator for LRUIter<'a, K, V>
