@@ -253,7 +253,7 @@ impl<P: Pager> BTree<P> {
     pub fn dealloc(&self, ptr: Pointer) {
         let strong = self.pager.upgrade().expect("tree callback dealloc failed");
         debug!("requesting dealloc: {ptr}");
-        strong.dealloc(ptr);
+        strong.page_dealloc(ptr);
     }
 
     // returns the amount of key value pairs in leaf nodes

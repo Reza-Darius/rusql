@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use tracing::{debug, error};
-use tracing_subscriber::registry::Data;
 
 use crate::database::codec::*;
 use crate::database::tables::tables::{IdxKind, Index};
@@ -375,7 +374,6 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::database::pager::mempage_tree;
     use crate::database::pager::transaction::Transaction;
     use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
     use std::sync::Arc;

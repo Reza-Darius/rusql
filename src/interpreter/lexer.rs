@@ -1,8 +1,7 @@
-use std::{collections::HashMap, iter::Peekable, str::Chars};
+use std::{iter::Peekable, str::Chars};
 
 use tracing::debug;
 
-use crate::database::errors::*;
 use crate::interpreter::tokens::*;
 
 pub struct Lexer<'a> {
@@ -72,7 +71,7 @@ impl<'a> Lexer<'a> {
 
         let iter = &mut self.input;
         let mut substring: String = String::new();
-        skip_whitespace(iter);
+        eat_whitespace(iter);
 
         // check for single character token
         if let Some(t) = lex_char(iter) {
@@ -98,7 +97,8 @@ impl<'a> Lexer<'a> {
     }
 }
 
-fn skip_whitespace(iter: &mut Peekable<Chars<'_>>) {
+// nom nom nom
+fn eat_whitespace(iter: &mut Peekable<Chars<'_>>) {
     // debug!("skipping whitespace");
     while let Some(c) = iter.peek() {
         if c.is_whitespace() {
@@ -212,8 +212,8 @@ mod lexer_test {
     use test_log::test;
 
     #[test]
-    fn token_test() -> Result<()> {
-        let input = "SELECT ALL FROM my_table";
+    fn token_test() {
+        let input = "SELECT * FROM my_table";
         let mut lexer = Lexer::new(input);
 
         let t1 = lexer.next_token();
@@ -223,15 +223,14 @@ mod lexer_test {
         let t5 = lexer.next_token();
 
         assert_eq!(t1, Token::Keyword(Keyword::SELECT));
-        assert_eq!(t2, Token::Keyword(Keyword::ALL));
+        assert_eq!(t2, Token::Operator(Operator::MULTI));
         assert_eq!(t3, Token::Keyword(Keyword::FROM));
         assert_eq!(t4, Token::Ident("my_table".to_string()));
         assert_eq!(t5, Token::EOF);
-        Ok(())
     }
 
     #[test]
-    fn token_test2() -> Result<()> {
+    fn token_test2() {
         let input = "SELECT name FROM my_table WHERE (x >= 5);";
         let mut tokens = Lexer::new(input);
 
@@ -258,7 +257,5 @@ mod lexer_test {
 
         assert!(tokens.next().is_none());
         assert_eq!(tokens.current, Token::EOF);
-
-        Ok(())
     }
 }

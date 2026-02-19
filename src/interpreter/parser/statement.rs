@@ -15,55 +15,42 @@ pub enum Statement {
     Create(CreateStatement),
 }
 
+impl Statement {
+    fn execute(self) {}
+}
+
 #[derive(Debug)]
 pub struct SelectStatement {
-    columns: Columns,
+    columns: StatementColumns,
     table: String,
-    index: Option<Vec<Index>>,
+    index: Option<Vec<StatementIndex>>,
     limit: Option<Box<dyn Expression>>,
 }
 
-// SELECT col1, col2 FROM table WHERE col1 = (10 + (1 * 2)) AND col2 > 5 LIMIT -5 + 7;
 pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
     info!("parsing SELECT statement!");
 
     let mut statement = SelectStatement {
-        columns: Columns::Wildcard,
+        columns: StatementColumns::Wildcard,
         table: String::new(),
         index: None,
         limit: None,
     };
 
+    parser.next();
     statement.columns = parse_columns(parser)?;
-
-    // parsing FROM
-    if let Some(t) = parser.next() {
-        debug!("parsing {t:?}");
-        if *t != Token::Keyword(Keyword::FROM) {
-            return Err(ParseError::InvalidToken {
-                expected: "expected FROM keyword".to_string(),
-                got: t.to_string(),
-            }
-            .into());
-        }
-    } else {
-        return Err(ParseError::ParseError("invalid token".to_string()).into());
-    }
-
-    // parsing table ident
+    parse_keyword(parser, Token::Keyword(Keyword::FROM))?;
     statement.table = parse_identifier(parser)?;
 
-    parser.next();
     if parser.lexer.current == Token::Seperator(Seperator::Semicolon) {
         return Ok(Statement::Select(statement));
     }
 
     // optional index or limit clause
-    match parser.lexer.current {
+    match &parser.lexer.current {
         Token::Keyword(Keyword::WHERE) => {
             debug!("parsing WHERE clause");
             statement.index = Some(parse_index(parser)?);
-            ()
         }
         Token::Keyword(Keyword::LIMIT) => {
             debug!("parsing LIMIT clause");
@@ -79,14 +66,15 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
         }
     };
 
-    match parser.lexer.current {
+    match &parser.lexer.current {
+        Token::Seperator(Seperator::Semicolon) => (),
         Token::Keyword(Keyword::LIMIT) => {
             debug!("parsing LIMIT clause");
             statement.limit = Some(parse_limit(parser)?);
         }
         ref t => {
             return Err(ParseError::InvalidToken {
-                expected: "expected WHERE clause".to_string(),
+                expected: "expected LIMIT clause".to_string(),
                 got: t.to_string(),
             }
             .into());
@@ -111,10 +99,12 @@ mod parser_test {
     use test_log::test;
 
     #[test]
-    fn parser_test1() {
-        let input = "SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2) LIMIT -5 + 7;";
+    fn select_statement1() {
+        let input = "SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = \"hello\" LIMIT -5 + 7;";
         let mut parser = Parser::new(input);
-        let res = parser.parse_input().unwrap();
+        parser.next();
+        let res = parse_select(&mut parser);
         println!("{:?}", res);
+        assert!(res.is_ok());
     }
 }

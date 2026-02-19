@@ -202,9 +202,11 @@ impl<'a, P: Pager> Iterator for ScanIter<'a, P> {
             // range scan
             Some(ref hi) => {
                 let (k, v) = self.cursor.next()?;
+
                 debug_if_env!("RUSQL_LOG_CURSOR", {
                     debug!(key=%k, hi=%hi.0, pred=?hi.1, "comparing");
                 });
+
                 // we return as soon as the key matches the high key predicate
                 if key_cmp(&k, &hi.0, hi.1) {
                     debug_if_env!("RUSQL_LOG_CURSOR", {
@@ -213,9 +215,11 @@ impl<'a, P: Pager> Iterator for ScanIter<'a, P> {
                     self.finished = true;
                     return None;
                 }
+
                 debug_if_env!("RUSQL_LOG_CURSOR", {
                     debug!("found");
                 });
+
                 Some((k, v))
             }
             // open scan
@@ -323,7 +327,7 @@ impl<'a, P: Pager> Cursor<'a, P> {
             return None;
         }
         let res = self.deref();
-        if res.0.is_empty() {
+        if res.0.is_sentinal_empty() {
             // empty key edge case!
             self.empty = true;
             return None;
@@ -437,7 +441,7 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
         return None;
     }
     // accounting for empty key edge case
-    if cursor.deref().0.is_empty() {
+    if cursor.deref().0.is_sentinal_empty() {
         return None;
     }
     assert_eq!(cursor.pos.len(), cursor.path.len());

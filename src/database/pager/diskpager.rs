@@ -3,7 +3,6 @@ use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-use parking_lot::MutexGuard;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use rustix::fs::{fstat, fsync, ftruncate};
 use tracing::{debug, error, instrument, warn};
@@ -80,7 +79,7 @@ pub(crate) trait Pager {
     // tree callbacks
     fn page_read(&self, ptr: Pointer, flag: NodeFlag) -> Arc<Node>; //tree decode
     fn page_alloc(&self, node: Node, version: u64) -> Pointer; //tree encode
-    fn dealloc(&self, ptr: Pointer); // tree dealloc/del
+    fn page_dealloc(&self, ptr: Pointer); // tree dealloc/del
 }
 
 pub(crate) trait GCCallbacks {
@@ -141,11 +140,6 @@ impl GCCallbacks for DiskPager {
     fn update(&self, ptr: Pointer) -> RwLockWriteGuard<'_, DiskBuffer> {
         self.buf_fl.write()
     }
-}
-
-struct FLUpdate<'a> {
-    node: &'a mut Node,
-    guard: MutexGuard<'a, DiskBuffer>,
 }
 
 impl DiskPager {

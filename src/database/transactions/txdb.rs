@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, sync::Arc};
 
-use parking_lot::{Mutex, RwLock};
 use tracing::debug;
 
 use crate::database::pager::diskpager::PageOrigin;
@@ -139,7 +138,7 @@ impl Pager for TXDB {
         page.ptr
     }
 
-    fn dealloc(&self, ptr: Pointer) {
+    fn page_dealloc(&self, ptr: Pointer) {
         assert_ne!(ptr.get(), 0, "never mark the mp for deallocation");
         debug!(%ptr, "adding to dealloc q:");
         let mut buf = self.tx_buf.as_ref().unwrap().borrow_mut();

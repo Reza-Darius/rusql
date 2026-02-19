@@ -1,14 +1,13 @@
 use std::{marker::PhantomData, ops::Deref};
 
 use crate::database::{
-    errors::{Error, Result, TableError},
-    pager::KVEngine,
-    tables::{Key, Value},
+    errors::{Result, TableError},
+    tables::Value,
     transactions::tx::TX,
     types::{BTREE_MAX_VAL_SIZE, DataCell},
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, instrument};
+use tracing::error;
 
 /*
  * Encoding Layout:
@@ -56,7 +55,7 @@ pub const PKEY_PREFIX: u16 = 0;
 
 /// wrapper for sentinal value
 #[derive(Serialize, Deserialize)]
-pub(crate) struct MetaTable(Table);
+pub struct MetaTable(Table);
 
 impl MetaTable {
     pub fn new() -> Self {
@@ -91,7 +90,7 @@ impl MetaTable {
 
 /// wrapper for sentinal value
 #[derive(Serialize, Deserialize)]
-pub(crate) struct TDefTable(Table);
+pub struct TDefTable(Table);
 
 impl TDefTable {
     pub fn new() -> Self {
@@ -128,7 +127,7 @@ impl Deref for TDefTable {
     }
 }
 
-pub(crate) struct TableBuilder {
+pub struct TableBuilder {
     name: Option<String>,
     id: Option<u32>,
     cols: Vec<Column>,
@@ -249,7 +248,7 @@ impl TableBuilder {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub(crate) struct Table {
+pub struct Table {
     pub name: String,
     pub id: u32,
     pub cols: Vec<Column>,
@@ -408,7 +407,7 @@ impl Table {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub(crate) struct Index {
+pub struct Index {
     /// unique identifier
     pub name: String,
     /// indices into the table.cols
@@ -419,19 +418,19 @@ pub(crate) struct Index {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub(crate) enum IdxKind {
+pub enum IdxKind {
     Primary,
     Secondary,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub(crate) struct Column {
+pub struct Column {
     pub title: String,
     pub data_type: TypeCol,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub(crate) enum TypeCol {
+pub enum TypeCol {
     BYTES = 1,
     INTEGER = 2,
 }

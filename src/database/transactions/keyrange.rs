@@ -1,6 +1,6 @@
 use tracing::debug;
 
-use crate::database::{btree::Compare, tables::Key};
+use crate::database::tables::Key;
 
 /// struct to record modified keys
 ///

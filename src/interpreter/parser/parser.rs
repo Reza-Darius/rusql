@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use tracing::{debug, info};
 
 use crate::database::errors::*;
@@ -27,41 +26,44 @@ impl<'a> Parser<'a> {
         self.lexer.peek()
     }
 
-    pub fn parse_input(&mut self) -> Result<Vec<Statement>> {
-        let mut res = vec![];
-        if let Some(t) = self.lexer.next() {
+    pub fn current(&self) -> Option<&Token> {
+        self.lexer.current()
+    }
+
+    pub fn parse_input(input: &'a str) -> Result<Vec<Statement>> {
+        let mut parser = Parser::new(input);
+        let mut statements = vec![];
+
+        while let Some(t) = parser.next() {
             debug!("parsing {t:?}");
             match t {
-                Token::Keyword(Keyword::SELECT) => res.push(parse_select(self)?),
+                Token::EOF => break,
+                Token::Keyword(Keyword::SELECT) => statements.push(parse_select(&mut parser)?),
                 // Token::Keyword(Keyword::INSERT) => parse_insert(&mut tokens),
-                _ => return Err(ParseError::ParseError("invalid input".to_string()).into()),
+                _ => {
+                    return Err(ParseError::InvalidToken {
+                        expected: "statement keyword".to_string(),
+                        got: t.to_string(),
+                    }
+                    .into());
+                }
             }
-        } else {
-            // error
-            return Err(ParseError::ParseError("invalid input".to_string()).into());
-        };
-        Ok(res)
+        }
+        Ok(statements)
     }
 
     fn prec_current(&self) -> Precedence {
-        check_prec(&self.lexer.current)
-        // *self
-        //     .precedence
-        //     .get(&self.lexer.current)
-        //     .unwrap_or_else(|| &Precedence::Lowest)
+        check_prec(self.current().expect("this wont get called on non"))
     }
 
     fn prec_next(&self) -> Precedence {
-        check_prec(&self.lexer.next)
-        // *self
-        //     .precedence
-        //     .get(&self.lexer.next)
-        //     .unwrap_or_else(|| &Precedence::Lowest)
+        check_prec(self.peek().expect("this wont get called on non"))
     }
 
     fn parse_expression(&mut self, prec: Precedence) -> Option<Box<dyn Expression>> {
         debug!(?prec, "parse expression with prec:");
-        let mut left_expr: Box<dyn Expression> = match &self.lexer.current {
+
+        let mut left_expr: Box<dyn Expression> = match self.current()? {
             Token::EOF => return None,
             t => {
                 debug!("parsing {t:?}");
@@ -74,11 +76,11 @@ impl<'a> Parser<'a> {
         };
 
         // are we at the end of an expression?
-        let end_expr = match &self.lexer.next {
-            Token::Keyword(_) => true,
-            Token::Seperator(Seperator::Semicolon) => true,
-            _ => false,
-        };
+        match self.peek()? {
+            Token::Keyword(_) => return Some(left_expr),
+            Token::Seperator(Seperator::Semicolon) => return Some(left_expr),
+            _ => (),
+        }
 
         debug!(
             "comparing prec {:?} with prec_next {:?} of token {:?}",
@@ -87,9 +89,9 @@ impl<'a> Parser<'a> {
             self.peek()
         );
 
-        while !end_expr && prec < self.prec_next() {
-            if let Some(infix_fn) = get_infix_fn(&self.lexer.next) {
-                self.lexer.next();
+        while prec < self.prec_next() {
+            if let Some(infix_fn) = get_infix_fn(self.peek()?) {
+                self.next();
                 left_expr = infix_fn(self, left_expr)
             } else {
                 debug!(
@@ -151,10 +153,11 @@ fn get_infix_fn(
     }
 }
 
-fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
-    if let Some(t) = parser.next() {
-        debug!("parsing {t:?}");
+pub fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
+    if let Some(t) = parser.current() {
+        debug!("parsing keyword {t:?}");
         if *t == expected {
+            parser.next();
             return Ok(());
         } else {
             return Err(ParseError::InvalidToken {
@@ -167,22 +170,24 @@ fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
     return Err(ParseError::ParseError("expected token".to_string()).into());
 }
 
-pub fn parse_columns(parser: &mut Parser) -> Result<Columns> {
-    if let Some(t) = parser.peek()
-        && let Token::Operator(Operator::MULTI) = t
-    {
-        return Ok(Columns::Wildcard);
-    }
+pub fn parse_columns(parser: &mut Parser) -> Result<StatementColumns> {
+    let mut columns: Vec<String> = vec![];
 
-    let mut cols: Vec<String> = vec![];
-    while let Some(t) = parser.peek() {
-        debug!("parsing {t:?}");
+    while let Some(t) = parser.current() {
+        debug!("parsing columns {t:?}");
         match t {
+            Token::Operator(Operator::MULTI) => return Ok(StatementColumns::Wildcard),
             Token::Ident(i) => {
-                cols.push(i.clone());
+                columns.push(i.clone());
                 parser.next();
             }
-            Token::Keyword(_) => return Ok(Columns::Cols(cols)),
+            Token::Keyword(_) => {
+                return if columns.is_empty() {
+                    Err(ParseError::ParseError("no columns provided!".to_string()).into())
+                } else {
+                    Ok(StatementColumns::Cols(columns))
+                };
+            }
             Token::Seperator(Seperator::Comma) => {
                 parser.next();
                 continue;
@@ -202,10 +207,14 @@ pub fn parse_columns(parser: &mut Parser) -> Result<Columns> {
 
 // columns and table names
 pub fn parse_identifier(parser: &mut Parser) -> Result<String> {
-    if let Some(t) = parser.next() {
-        debug!("parsing {t:?}");
+    if let Some(t) = parser.current() {
+        debug!("parsing identifier {t:?}");
         match t {
-            Token::Ident(i) => Ok(i.clone()),
+            Token::Ident(i) => {
+                let ident = i.clone();
+                parser.next();
+                Ok(ident)
+            }
             t => Err(ParseError::InvalidToken {
                 expected: "expected table identifier".to_string(),
                 got: t.to_string(),
@@ -217,22 +226,50 @@ pub fn parse_identifier(parser: &mut Parser) -> Result<String> {
     }
 }
 
-pub fn parse_index(parser: &mut Parser) -> Result<Vec<Index>> {
-    let mut result = vec![];
+pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
+    debug!("parsing index");
 
-    let column = parse_identifier(parser)?;
-    let operator = parse_operator(parser)?;
-    let expr = parse_expression_statement(parser)
-        .ok_or_else(|| ParseError::ParseError("couldnt parse expression".to_string()))?;
-
-    let index = Index {
-        column,
-        operator,
-        expr,
-    };
-    result.push(index);
     parser.next();
-    Ok(result)
+    let mut indices = vec![];
+
+    while let Some(t) = parser.current() {
+        debug!(?t, "parsing token");
+        match t {
+            Token::Seperator(Seperator::Comma) => {
+                parser.next();
+                continue;
+            }
+            Token::Ident(ident) => {
+                let column = ident.to_owned();
+                let operator = parse_operator(parser)?;
+                let expr = parse_expression_statement(parser).ok_or_else(|| {
+                    ParseError::ParseError("couldnt parse expression".to_string())
+                })?;
+
+                let index = StatementIndex {
+                    column,
+                    operator,
+                    expr,
+                };
+                indices.push(index);
+                parser.next();
+            }
+
+            Token::EOF => break,
+            Token::Seperator(Seperator::Semicolon) => break,
+            Token::Keyword(_) => break,
+
+            t => {
+                return Err(ParseError::InvalidToken {
+                    expected: "expected identifier, seperator or EOF".to_string(),
+                    got: t.to_string(),
+                }
+                .into());
+            }
+        }
+    }
+
+    Ok(indices)
 }
 
 pub fn parse_operator(parser: &mut Parser) -> Result<Operator> {
@@ -324,7 +361,7 @@ mod parser_test {
     use test_log::test;
 
     #[test]
-    fn parser_test() {
+    fn expression_test1() {
         let input = "10 + 10";
         let mut parser = Parser::new(input);
         let expr = parse_expression_statement(&mut parser)
@@ -342,5 +379,14 @@ mod parser_test {
             .unwrap();
 
         assert_eq!(expr, ValueObject::Int(-10));
+
+        let input = "\"hello\" + \"world\"";
+        let mut parser = Parser::new(input);
+        let expr = parse_expression_statement(&mut parser)
+            .unwrap()
+            .evaluate()
+            .unwrap();
+
+        assert_eq!(expr, ValueObject::Str("helloworld".to_string()));
     }
 }

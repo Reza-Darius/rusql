@@ -11,5 +11,6 @@ A minimal, from-scratch database engine in Rust.
 - Type-safe error handling 
 - Supports tables and secondary indices
 - Concurrent transactions through MVCC
-- Read optimized through shared LRU cache
-- Hand rolled lexer and prett parser for SQL
+- Hand rolled LRU cache for shared reads
+- Hand rolled backoff logic for retries
+- Hand rolled lexer and parser for accepting SQL queries

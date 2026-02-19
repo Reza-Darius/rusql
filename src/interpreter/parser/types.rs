@@ -1,14 +1,14 @@
 use crate::interpreter::{parser::eval::Expression, tokens::Operator};
 
 #[derive(Debug)]
-pub struct Index {
+pub struct StatementIndex {
     pub column: String,
     pub operator: Operator,
     pub expr: Box<dyn Expression>,
 }
 
 #[derive(Debug)]
-pub enum Columns {
+pub enum StatementColumns {
     Wildcard,
     Cols(Vec<String>),
 }
@@ -21,4 +21,10 @@ pub enum Precedence {
     Sum,
     Product,
     Prefix,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ValueObject {
+    Str(String),
+    Int(i64),
 }

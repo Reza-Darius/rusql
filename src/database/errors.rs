@@ -101,7 +101,7 @@ pub enum FLError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum TableError {
+pub enum TableError {
     // Record
     #[error("invalid Record (expected {expected:?}, found {found:?})")]
     RecordEncodeError { expected: TypeCol, found: String },
@@ -168,7 +168,7 @@ pub(crate) enum TableError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum ScanError {
+pub enum ScanError {
     #[error("{0}")]
     SeekError(String),
     #[error("{0}")]
@@ -182,7 +182,7 @@ pub(crate) enum ScanError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum TXError {
+pub enum TXError {
     #[error("write function called on read TX")]
     MismatchedKindError,
     #[error("key range error")]
@@ -202,7 +202,7 @@ pub(crate) enum TXError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     #[error("parsing error: {0}")]
     ParseError(String),
     #[error("expected {expected}, got {got}")]

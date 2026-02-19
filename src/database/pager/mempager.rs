@@ -117,7 +117,7 @@ impl Pager for MemoryPager {
         Pointer(free_page)
     }
 
-    fn dealloc(&self, ptr: Pointer) {
+    fn page_dealloc(&self, ptr: Pointer) {
         debug!("deleting node at ptr {}", ptr.0);
         self.freelist.borrow_mut().push(ptr.0);
         self.pages

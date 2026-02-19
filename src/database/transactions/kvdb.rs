@@ -12,7 +12,7 @@ use crate::database::pager::{DiskPager, Pager};
 use crate::database::transactions::tx::{TX, TXKind};
 use crate::database::types::TBUFFER_CAP;
 use crate::database::{
-    errors::{Error, Result},
+    errors::Result,
     tables::{records::*, tables::*},
 };
 /*

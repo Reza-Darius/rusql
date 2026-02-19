@@ -7,14 +7,13 @@ use crate::database::{
     btree::{
         Compare, DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag, SetResponse, Tree,
     },
-    codec::*,
     errors::{Error, Result, TXError, TableError},
-    pager::{KVEngine, MetaPage, Pager},
+    pager::MetaPage,
     tables::{
         Key, Query, Record, Value,
         records::QueryCol,
         tables::{
-            DEF_TABLE_COL1, LOWEST_PREMISSIABLE_TID, META_TABLE_COL1, META_TABLE_ID_ROW, MetaTable,
+            DEF_TABLE_COL1, LOWEST_PREMISSIABLE_TID, META_TABLE_COL1, META_TABLE_ID_ROW,
             PKEY_PREFIX, Table,
         },
     },

@@ -1,13 +1,11 @@
-use std::cell;
+use std::cmp::Ordering;
 use std::cmp::min;
-use std::path::Prefix;
 use std::sync::Arc;
-use std::{cmp::Ordering, fmt::Write};
 
 use tracing::debug;
 
 use crate::database::codec::*;
-use crate::database::errors::{Error, Result};
+use crate::database::errors::Result;
 use crate::database::tables::tables::TypeCol;
 use crate::database::types::DataCell;
 use crate::debug_if_env;
@@ -29,7 +27,7 @@ impl Key {
     }
 
     /// checks if key is "the" empty key, for len of the actual key use the len() method
-    pub fn is_empty(&self) -> bool {
+    pub fn is_sentinal_empty(&self) -> bool {
         let e = [0u8; 6];
         e == *self.0
     }
@@ -530,6 +528,7 @@ fn len_cmp(a: &[u8], b: &[u8]) -> Option<Ordering> {
 
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
         let mut str = String::new();
         for cell in self.iter() {
             match cell {
@@ -545,8 +544,8 @@ impl std::fmt::Display for Value {
 #[cfg(test)]
 mod test {
     use crate::database::pager::transaction::Transaction;
+    use crate::database::tables::Record;
     use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
-    use crate::database::{pager::mempage_tree, tables::Record};
 
     use super::super::tables::TableBuilder;
     use super::*;
@@ -626,6 +625,6 @@ mod test {
 
         let e = Key::new_empty();
         assert_eq!(e.len(), 6);
-        assert!(e.is_empty());
+        assert!(e.is_sentinal_empty());
     }
 }

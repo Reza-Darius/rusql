@@ -1,10 +1,8 @@
-use crate::{database::errors::*, interpreter::tokens::Operator};
-
-#[derive(Debug, PartialEq)]
-pub enum ValueObject {
-    Str(String),
-    Int(i64),
-}
+use crate::{
+    database::errors::*,
+    interpreter::{parser::types::ValueObject, tokens::Operator},
+};
+use std::fmt::Display;
 
 pub trait Expression: std::fmt::Debug {
     fn evaluate(&self) -> Result<ValueObject>;
@@ -27,11 +25,10 @@ pub struct IntLiteral(pub String);
 
 impl Expression for IntLiteral {
     fn evaluate(&self) -> Result<ValueObject> {
-        let i = self
-            .0
+        self.0
             .parse::<i64>()
-            .map_err(|e| ParseError::ParseError(format!("couldnt evaluate int literal {e}")))?;
-        Ok(ValueObject::Int(i))
+            .map(|i| ValueObject::Int(i))
+            .map_err(|e| ParseError::ParseError("couldnt parse int literal".to_string()).into())
     }
 }
 
@@ -79,11 +76,7 @@ impl Expression for InfixExpression {
     }
 }
 
-fn eval_with_str<T, U>(a: &T, b: &U, op: Operator) -> Result<ValueObject>
-where
-    T: std::fmt::Display,
-    U: std::fmt::Display,
-{
+fn eval_with_str(a: &impl Display, b: &impl Display, op: Operator) -> Result<ValueObject> {
     match op {
         Operator::PLUS => Ok(ValueObject::Str(format!("{a}{b}"))),
         _ => Err(
@@ -119,9 +112,10 @@ impl Expression for PrefixExpression {
         let expr = self
             .rhs
             .as_ref()
-            .ok_or_else(|| ParseError::ParseError("no expression found!".to_string()))?;
+            .ok_or_else(|| ParseError::ParseError("no expression found!".to_string()))?
+            .evaluate()?;
 
-        match expr.evaluate()? {
+        match expr {
             ValueObject::Str(_) => Err(ParseError::ParseError(
                 "invalid expression: cant have a string for a prefix expression".to_string(),
             ))?,

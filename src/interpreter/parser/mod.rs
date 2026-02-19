@@ -1,4 +1,4 @@
-mod eval;
-mod parser;
-mod statement;
-mod types;
+pub mod eval;
+pub mod parser;
+pub mod statement;
+pub mod types;
