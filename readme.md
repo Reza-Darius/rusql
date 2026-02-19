@@ -1,6 +1,6 @@
 # RuSQL
 
-A minimal, from-scratch database engine in Rust.
+A minimal database written entirely from scratch in Rust
 
 ## Highlights
 - B+Tree based key-value storage
