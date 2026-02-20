@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tracing::debug;
 
 use crate::database::codec::*;
-use crate::database::errors::Result;
 use crate::database::tables::tables::TypeCol;
 use crate::database::types::DataCell;
 use crate::debug_if_env;
@@ -543,6 +542,7 @@ impl std::fmt::Display for Value {
 
 #[cfg(test)]
 mod test {
+    use crate::database::errors::Result;
     use crate::database::pager::transaction::Transaction;
     use crate::database::tables::Record;
     use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
@@ -597,6 +597,7 @@ mod test {
 
         assert!(kv2.0 < kv3.0);
         assert_eq!(kv3.0.to_string(), "2 0 smol 5");
+
         let _ = db.commit(tx);
         cleanup_file(path);
         Ok(())
@@ -608,10 +609,12 @@ mod test {
         let k3: Key = "10".into();
         let k1: Key = "1".into();
         let k4: Key = "1".into();
+
         assert!(k3 < k2);
         assert!(k1 < k2);
         assert!(k1 < k3);
         assert!(k1 == k4);
+
         Ok(())
     }
 

@@ -1,29 +1,21 @@
 use std::sync::Arc;
 
-use crate::database::btree::SetFlag;
 use crate::database::errors::Result;
 use crate::database::transactions::kvdb::KVDB;
-use crate::interpreter::{StatementColumns, ValueObject};
+use crate::interpreter::*;
 
-// outward API
-trait DatabaseAPI {
-    fn create_table(&self, name: &str) -> Result<()>;
-    fn drop_table(&self, name: &str) -> Result<()>;
+struct QueryResult {
+    result: Option<String>,
+}
 
-    fn create_idx(&self, table_name: &str, cols: StatementColumns) -> Result<()>;
-    fn drop_idx(&self, table_name: &str, cols: StatementColumns) -> Result<()>;
+impl QueryResult {
+    fn rows(self) -> String {
+        todo!()
+    }
+}
 
-    fn insert(
-        &self,
-        table: &str,
-        cols: StatementColumns,
-        values: &[ValueObject],
-        flag: SetFlag,
-    ) -> Result<()>;
-
-    fn search(&self, table: &str, cols: StatementColumns, limit: u32) -> Result<()>;
-    // fn update(&self, table: &str, cols: StatementColumns, values: &[ValueObject]) -> Result<()>;
-    fn delete(&self, table: &str, cols: StatementColumns, values: &[ValueObject]) -> Result<()>;
+trait SQLInterface {
+    fn execute(&self, statement: Statement) -> Result<QueryResult>;
 }
 
 struct Database {
@@ -36,46 +28,20 @@ impl Database {
             db: Arc::new(KVDB::new(path)),
         }
     }
+}
 
-    fn select() {
-        // TX begin
-        // IDX strategy
-        // TX commit
+impl SQLInterface for Database {
+    fn execute(&self, statement: Statement) -> Result<QueryResult> {
+        match statement {
+            Statement::Select(select_statement) => todo!(),
+            Statement::Insert(insert_statement) => todo!(),
+            Statement::Update(update_statement) => todo!(),
+            Statement::Delete(delete_statement) => todo!(),
+            Statement::Create(create_statement) => todo!(),
+        }
     }
 }
 
-impl DatabaseAPI for Database {
-    fn create_table(&self, name: &str) -> Result<()> {
-        todo!()
-    }
-
-    fn drop_table(&self, name: &str) -> Result<()> {
-        todo!()
-    }
-
-    fn create_idx(&self, table_name: &str, cols: StatementColumns) -> Result<()> {
-        todo!()
-    }
-
-    fn drop_idx(&self, table_name: &str, cols: StatementColumns) -> Result<()> {
-        todo!()
-    }
-
-    fn insert(
-        &self,
-        table: &str,
-        cols: StatementColumns,
-        values: &[ValueObject],
-        flag: SetFlag,
-    ) -> Result<()> {
-        todo!()
-    }
-
-    fn search(&self, table: &str, cols: StatementColumns, limit: u32) -> Result<()> {
-        todo!()
-    }
-
-    fn delete(&self, table: &str, cols: StatementColumns, values: &[ValueObject]) -> Result<()> {
-        todo!()
-    }
+fn exec_select(db: &Database, stmt: SelectStatement) -> Result<()> {
+    todo!()
 }

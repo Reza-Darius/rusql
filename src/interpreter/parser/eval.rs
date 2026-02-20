@@ -28,7 +28,7 @@ impl Expression for IntLiteral {
         self.0
             .parse::<i64>()
             .map(|i| ValueObject::Int(i))
-            .map_err(|e| ParseError::ParseError("couldnt parse int literal".to_string()).into())
+            .map_err(|e| ParseError::ParseError("couldnt parse int literal").into())
     }
 }
 
@@ -54,13 +54,13 @@ impl Expression for InfixExpression {
         let lhs = self
             .lhs
             .as_ref()
-            .ok_or_else(|| ParseError::ParseError("no lhs expression found!".to_string()))?
+            .ok_or_else(|| ParseError::ParseError("no lhs expression found!"))?
             .evaluate()?;
 
         let rhs = self
             .rhs
             .as_ref()
-            .ok_or_else(|| ParseError::ParseError("no rhs expression found!".to_string()))?
+            .ok_or_else(|| ParseError::ParseError("no rhs expression found!"))?
             .evaluate()?;
 
         match &lhs {
@@ -78,26 +78,19 @@ impl Expression for InfixExpression {
 
 fn eval_with_str(a: &impl Display, b: &impl Display, op: Operator) -> Result<ValueObject> {
     match op {
-        Operator::PLUS => Ok(ValueObject::Str(format!("{a}{b}"))),
-        _ => Err(
-            ParseError::ParseError("invalid operator for str infix expression".to_string()).into(),
-        ),
+        Operator::Plus => Ok(ValueObject::Str(format!("{a}{b}"))),
+        _ => Err(ParseError::ParseError("invalid operator for str infix expression").into()),
     }
 }
 
 fn eval_int_int(int_a: i64, int_b: i64, op: Operator) -> Result<ValueObject> {
     match op {
-        Operator::PLUS => Ok(ValueObject::Int(int_a + int_b)),
-        Operator::MINUS => Ok(ValueObject::Int(int_a - int_b)),
-        Operator::MULTI => Ok(ValueObject::Int(int_a * int_b)),
-        Operator::DIVIDE => Ok(ValueObject::Int(int_a / int_b)),
-        Operator::MODULO => Ok(ValueObject::Int(int_a % int_b)),
-        _ => {
-            return Err(ParseError::ParseError(
-                "invalid operator for int to int infix expression".to_string(),
-            )
-            .into());
-        }
+        Operator::Plus => Ok(ValueObject::Int(int_a + int_b)),
+        Operator::Minus => Ok(ValueObject::Int(int_a - int_b)),
+        Operator::Multi => Ok(ValueObject::Int(int_a * int_b)),
+        Operator::Divide => Ok(ValueObject::Int(int_a / int_b)),
+        Operator::Modulo => Ok(ValueObject::Int(int_a % int_b)),
+        _ => Err(ParseError::ParseError("invalid operator for int to int infix expression").into()),
     }
 }
 
@@ -112,18 +105,16 @@ impl Expression for PrefixExpression {
         let expr = self
             .rhs
             .as_ref()
-            .ok_or_else(|| ParseError::ParseError("no expression found!".to_string()))?
+            .ok_or_else(|| ParseError::ParseError("no expression found!"))?
             .evaluate()?;
 
         match expr {
             ValueObject::Str(_) => Err(ParseError::ParseError(
-                "invalid expression: cant have a string for a prefix expression".to_string(),
+                "invalid expression: cant have a string for a prefix expression",
             ))?,
             ValueObject::Int(i) => match self.operator {
-                Operator::MINUS => Ok(ValueObject::Int(-1 * i)),
-                _ => Err(ParseError::ParseError(
-                    "invalid prefix operator".to_string(),
-                ))?,
+                Operator::Minus => Ok(ValueObject::Int(-i)),
+                _ => Err(ParseError::ParseError("invalid prefix operator"))?,
             },
         }
     }
@@ -138,7 +129,7 @@ mod eval_test {
     fn eval_test1() {
         let mut expr = InfixExpression {
             lhs: Some(10.into()),
-            operator: Operator::PLUS,
+            operator: Operator::Plus,
             rhs: Some(10.into()),
         };
 
@@ -146,7 +137,7 @@ mod eval_test {
 
         expr = InfixExpression {
             lhs: Some("Hello".into()),
-            operator: Operator::PLUS,
+            operator: Operator::Plus,
             rhs: Some("World".into()),
         };
 
@@ -157,7 +148,7 @@ mod eval_test {
 
         expr = InfixExpression {
             lhs: Some(10.into()),
-            operator: Operator::PLUS,
+            operator: Operator::Plus,
             rhs: Some("World".into()),
         };
 
@@ -167,14 +158,14 @@ mod eval_test {
         );
 
         let mut expr = PrefixExpression {
-            operator: Operator::MINUS,
+            operator: Operator::Minus,
             rhs: Some(10.into()),
         };
 
         assert_eq!(expr.evaluate().unwrap(), ValueObject::Int(-10));
 
         expr = PrefixExpression {
-            operator: Operator::MODULO,
+            operator: Operator::Modulo,
             rhs: Some(10.into()),
         };
         assert!(expr.evaluate().is_err())

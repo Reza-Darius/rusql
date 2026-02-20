@@ -2,11 +2,10 @@
 use std::convert::TryInto;
 use std::error::Error;
 use std::fs::{DirBuilder, File, OpenOptions, rename};
+use std::io;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::{env, io};
 use tracing::{Level, event, info, instrument};
-use tracing_subscriber;
 
 const BLOCK_SIZE: usize = 50;
 

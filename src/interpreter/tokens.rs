@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub enum Token {
     Illegal,
-    EOF,
+    #[default]
+    Eof,
 
     Keyword(Keyword),
     Operator(Operator),
@@ -11,12 +12,6 @@ pub enum Token {
 
     Ident(String), // columns and table names
     Value(Value),
-}
-
-impl Default for Token {
-    fn default() -> Self {
-        Token::EOF
-    }
 }
 
 impl Token {
@@ -33,59 +28,59 @@ pub enum Value {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Keyword {
-    SELECT,
-    INSERT,
-    UPDATE,
-    DELETE,
-    CREATE,
+    Select,
+    Insert,
+    Update,
+    Delete,
+    Create,
 
-    VALUES,
-    ALL,
-    AND,
-    OR,
-    NOT,
-    FROM,
-    INTO,
-    WHERE,
-    LIMIT,
+    Values,
+    All,
+    And,
+    Or,
+    Not,
+    From,
+    Into,
+    Where,
+    Limit,
 }
 
-pub const SELECT: &'static str = "select";
-pub const INSERT: &'static str = "insert";
-pub const UPDATE: &'static str = "update";
-pub const DELETE: &'static str = "delete";
-pub const CREATE: &'static str = "create";
-pub const VALUES: &'static str = "values";
+pub const SELECT: &str = "select";
+pub const INSERT: &str = "insert";
+pub const UPDATE: &str = "update";
+pub const DELETE: &str = "delete";
+pub const CREATE: &str = "create";
+pub const VALUES: &str = "values";
 
-pub const ALL: &'static str = "all";
-pub const AND: &'static str = "and";
-pub const OR: &'static str = "or";
-pub const NOT: &'static str = "not";
-pub const FROM: &'static str = "from";
-pub const INTO: &'static str = "into";
-pub const WHERE: &'static str = "where";
-pub const LIMIT: &'static str = "limit";
+pub const ALL: &str = "all";
+pub const AND: &str = "and";
+pub const OR: &str = "or";
+pub const NOT: &str = "not";
+pub const FROM: &str = "from";
+pub const INTO: &str = "into";
+pub const WHERE: &str = "where";
+pub const LIMIT: &str = "limit";
 
 thread_local! {
     pub static KEYWORDS: HashMap<&'static str, Keyword> =  {
         let mut map = HashMap::new();
 
-        map.insert(SELECT, Keyword::SELECT);
-        map.insert(INSERT, Keyword::INSERT);
-        map.insert(UPDATE, Keyword::UPDATE);
-        map.insert(DELETE, Keyword::DELETE);
-        map.insert(CREATE, Keyword::CREATE);
-        map.insert(VALUES, Keyword::VALUES);
+        map.insert(SELECT, Keyword::Select);
+        map.insert(INSERT, Keyword::Insert);
+        map.insert(UPDATE, Keyword::Update);
+        map.insert(DELETE, Keyword::Delete);
+        map.insert(CREATE, Keyword::Create);
+        map.insert(VALUES, Keyword::Values);
 
-        map.insert(ALL, Keyword::ALL);
-        map.insert(AND, Keyword::AND);
-        map.insert(OR, Keyword::OR);
-        map.insert(NOT, Keyword::NOT);
+        map.insert(ALL, Keyword::All);
+        map.insert(AND, Keyword::And);
+        map.insert(OR, Keyword::Or);
+        map.insert(NOT, Keyword::Not);
 
-        map.insert(FROM, Keyword::FROM);
-        map.insert(INTO, Keyword::INTO);
-        map.insert(WHERE, Keyword::WHERE);
-        map.insert(LIMIT, Keyword::LIMIT);
+        map.insert(FROM, Keyword::From);
+        map.insert(INTO, Keyword::Into);
+        map.insert(WHERE, Keyword::Where);
+        map.insert(LIMIT, Keyword::Limit);
 
         map
     }
@@ -93,19 +88,19 @@ thread_local! {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Operator {
-    ASSIGN,
+    Assign,
 
-    PLUS,
-    MINUS,
-    MULTI,
-    DIVIDE,
-    MODULO,
+    Plus,
+    Minus,
+    Multi,
+    Divide,
+    Modulo,
 
-    EQUAL,
-    LT,
-    LE,
-    GT,
-    GE,
+    Equal,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 pub const ASSIGN: char = '=';

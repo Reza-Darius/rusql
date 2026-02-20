@@ -4,9 +4,7 @@ use tracing::{debug, error, info, instrument};
 
 use crate::database::{
     BTree,
-    btree::{
-        Compare, DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag, SetResponse, Tree,
-    },
+    btree::{DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag, SetResponse, Tree},
     errors::{Error, Result, TXError, TableError},
     pager::MetaPage,
     tables::{
@@ -17,7 +15,7 @@ use crate::database::{
             PKEY_PREFIX, Table,
         },
     },
-    transactions::{keyrange::KeyRange, kvdb::KVDB, txdb::TXDB},
+    transactions::{keyrange::KeyRange, txdb::TXDB},
     types::DataCell,
 };
 

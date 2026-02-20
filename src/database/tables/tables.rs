@@ -314,6 +314,17 @@ impl Table {
         None
     }
 
+    /// returns the first index that contains the column
+    pub fn get_index(&self, col_name: &str) -> Option<&Index> {
+        let col_idx = self.col_exists(col_name)?;
+        for index in self.indices.iter() {
+            if index.columns.contains(&col_idx) {
+                return Some(index);
+            }
+        }
+        None
+    }
+
     /// returns idx into indices array matching name
     pub fn idx_exists(&self, idx_name: &str) -> Option<usize> {
         if idx_name.is_empty() {

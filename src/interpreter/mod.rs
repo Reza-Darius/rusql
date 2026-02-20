@@ -2,4 +2,4 @@ mod lexer;
 mod parser;
 mod tokens;
 
-pub(crate) use parser::types::{StatementColumns, StatementIndex, ValueObject};
+pub(crate) use parser::statement::*;

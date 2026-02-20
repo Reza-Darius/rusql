@@ -13,6 +13,15 @@ pub enum StatementColumns {
     Cols(Vec<String>),
 }
 
+impl StatementColumns {
+    pub fn len(&self) -> usize {
+        match self {
+            StatementColumns::Wildcard => 0,
+            StatementColumns::Cols(items) => items.len(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum Precedence {
     Lowest,

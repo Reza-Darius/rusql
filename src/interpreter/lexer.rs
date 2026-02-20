@@ -16,8 +16,8 @@ impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         Lexer {
             input: input.chars().peekable(),
-            current: Token::EOF,
-            next: Token::EOF,
+            current: Token::Eof,
+            next: Token::Eof,
             empty: false,
             first: true,
         }
@@ -40,7 +40,7 @@ impl<'a> Lexer<'a> {
         debug!(?self.next, "next token");
 
         match &self.current {
-            Token::EOF => None,
+            Token::Eof => None,
             token => Some(token),
         }
     }
@@ -51,14 +51,14 @@ impl<'a> Lexer<'a> {
 
     pub fn peek(&self) -> Option<&Token> {
         match &self.next {
-            Token::EOF => None,
+            Token::Eof => None,
             token => Some(token),
         }
     }
 
     pub fn current(&self) -> Option<&Token> {
         match &self.current {
-            Token::EOF => None,
+            Token::Eof => None,
             token => Some(token),
         }
     }
@@ -66,7 +66,7 @@ impl<'a> Lexer<'a> {
     fn next_token(&mut self) -> Token {
         if self.empty {
             // debug!("returning EOF Token");
-            return Token::EOF;
+            return Token::Eof;
         }
 
         let iter = &mut self.input;
@@ -90,10 +90,9 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        let t = lex_keyword(&substring).unwrap_or_else(|| lex_value(&substring));
+        return lex_keyword(&substring).unwrap_or_else(|| lex_value(&substring));
         // debug!(?t, "returning token");
         // debug!(char = ?iter.peek(), "next char");
-        t
     }
 }
 
@@ -124,24 +123,24 @@ fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
                     && let ASSIGN = *c
                 {
                     iter.next();
-                    Some(Token::Operator(Operator::EQUAL))
+                    Some(Token::Operator(Operator::Equal))
                 } else {
-                    Some(Token::Operator(Operator::ASSIGN))
+                    Some(Token::Operator(Operator::Assign))
                 }
             }
-            PLUS => Some(Token::Operator(Operator::PLUS)),
-            MINUS => Some(Token::Operator(Operator::MINUS)),
-            MULTI => Some(Token::Operator(Operator::MULTI)),
-            DIVIDE => Some(Token::Operator(Operator::DIVIDE)),
-            MODULO => Some(Token::Operator(Operator::MODULO)),
+            PLUS => Some(Token::Operator(Operator::Plus)),
+            MINUS => Some(Token::Operator(Operator::Minus)),
+            MULTI => Some(Token::Operator(Operator::Multi)),
+            DIVIDE => Some(Token::Operator(Operator::Divide)),
+            MODULO => Some(Token::Operator(Operator::Modulo)),
             LT => {
                 if let Some(c) = iter.peek()
                     && let ASSIGN = *c
                 {
                     iter.next();
-                    Some(Token::Operator(Operator::LE))
+                    Some(Token::Operator(Operator::Le))
                 } else {
-                    Some(Token::Operator(Operator::LT))
+                    Some(Token::Operator(Operator::Lt))
                 }
             }
             GT => {
@@ -150,15 +149,15 @@ fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
                     && let ASSIGN = *c
                 {
                     iter.next();
-                    Some(Token::Operator(Operator::GE))
+                    Some(Token::Operator(Operator::Ge))
                 } else {
-                    Some(Token::Operator(Operator::GT))
+                    Some(Token::Operator(Operator::Gt))
                 }
             }
 
             _ => None,
         },
-        None => Some(Token::EOF),
+        None => Some(Token::Eof),
     }
 }
 
@@ -222,11 +221,11 @@ mod lexer_test {
         let t4 = lexer.next_token();
         let t5 = lexer.next_token();
 
-        assert_eq!(t1, Token::Keyword(Keyword::SELECT));
-        assert_eq!(t2, Token::Operator(Operator::MULTI));
-        assert_eq!(t3, Token::Keyword(Keyword::FROM));
+        assert_eq!(t1, Token::Keyword(Keyword::Select));
+        assert_eq!(t2, Token::Operator(Operator::Multi));
+        assert_eq!(t3, Token::Keyword(Keyword::From));
         assert_eq!(t4, Token::Ident("my_table".to_string()));
-        assert_eq!(t5, Token::EOF);
+        assert_eq!(t5, Token::Eof);
     }
 
     #[test]
@@ -234,17 +233,17 @@ mod lexer_test {
         let input = "SELECT name FROM my_table WHERE (x >= 5);";
         let mut tokens = Lexer::new(input);
 
-        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::SELECT));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::Select));
         assert_eq!(*tokens.next().unwrap(), Token::Ident("name".to_string()));
-        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::FROM));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::From));
         assert_eq!(
             *tokens.next().unwrap(),
             Token::Ident("my_table".to_string())
         );
-        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::WHERE));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::Where));
         assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::LParen));
         assert_eq!(*tokens.next().unwrap(), Token::Ident("x".to_string()));
-        assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::GE));
+        assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::Ge));
         assert_eq!(
             *tokens.next().unwrap(),
             Token::Value(Value::Int(5i64.to_string()))
@@ -256,6 +255,45 @@ mod lexer_test {
         );
 
         assert!(tokens.next().is_none());
-        assert_eq!(tokens.current, Token::EOF);
+        assert_eq!(tokens.current, Token::Eof);
+    }
+
+    #[test]
+    fn token_test_insert1() {
+        let input = "INSERT INTO table (col1, col2) VALUES (2*2), \"Hello\";";
+        let mut tokens = Lexer::new(input);
+
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::Insert));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::Into));
+        assert_eq!(*tokens.next().unwrap(), Token::Ident("table".to_string()));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::LParen));
+        assert_eq!(*tokens.next().unwrap(), Token::Ident("col1".to_string()));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::Comma));
+        assert_eq!(*tokens.next().unwrap(), Token::Ident("col2".to_string()));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::RParen));
+        assert_eq!(*tokens.next().unwrap(), Token::Keyword(Keyword::Values));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::LParen));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Value(Value::Int(2.to_string()))
+        );
+        assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::Multi));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Value(Value::Int(2.to_string()))
+        );
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::RParen));
+        assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::Comma));
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Value(Value::Str("Hello".to_string()))
+        );
+        assert_eq!(
+            *tokens.next().unwrap(),
+            Token::Seperator(Seperator::Semicolon)
+        );
+
+        assert!(tokens.next().is_none());
+        assert_eq!(tokens.current, Token::Eof);
     }
 }

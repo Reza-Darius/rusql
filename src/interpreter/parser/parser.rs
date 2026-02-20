@@ -11,35 +11,34 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str) -> Self {
-        let parser = Parser {
+    pub(super) fn new(input: &'a str) -> Self {
+        Parser {
             lexer: Lexer::new(input),
-        };
-        parser
+        }
     }
 
-    pub fn next(&mut self) -> Option<&Token> {
+    pub(super) fn next(&mut self) -> Option<&Token> {
         self.lexer.next()
     }
 
-    pub fn peek(&self) -> Option<&Token> {
+    pub(super) fn peek(&self) -> Option<&Token> {
         self.lexer.peek()
     }
 
-    pub fn current(&self) -> Option<&Token> {
+    pub(super) fn current(&self) -> Option<&Token> {
         self.lexer.current()
     }
 
-    pub fn parse_input(input: &'a str) -> Result<Vec<Statement>> {
+    pub fn parse(input: &'a str) -> Result<Vec<Statement>> {
         let mut parser = Parser::new(input);
         let mut statements = vec![];
 
         while let Some(t) = parser.next() {
             debug!("parsing {t:?}");
             match t {
-                Token::EOF => break,
-                Token::Keyword(Keyword::SELECT) => statements.push(parse_select(&mut parser)?),
-                // Token::Keyword(Keyword::INSERT) => parse_insert(&mut tokens),
+                Token::Eof => break,
+                Token::Keyword(Keyword::Select) => statements.push(parse_select(&mut parser)?),
+                Token::Keyword(Keyword::Insert) => statements.push(parse_insert(&mut parser)?),
                 _ => {
                     return Err(ParseError::InvalidToken {
                         expected: "statement keyword".to_string(),
@@ -64,9 +63,9 @@ impl<'a> Parser<'a> {
         debug!(?prec, "parse expression with prec:");
 
         let mut left_expr: Box<dyn Expression> = match self.current()? {
-            Token::EOF => return None,
+            Token::Eof => return None,
             t => {
-                debug!("parsing {t:?}");
+                debug!("parsing {t:?} for expression");
                 match t {
                     Token::Value(Value::Int(i)) => Box::new(IntLiteral(i.clone())),
                     Token::Value(Value::Str(s)) => Box::new(StrLiteral(s.clone())),
@@ -109,24 +108,24 @@ impl<'a> Parser<'a> {
 
 fn check_prec(token: &Token) -> Precedence {
     match *token {
-        Token::Operator(Operator::PLUS) => Precedence::Sum,
-        Token::Operator(Operator::MINUS) => Precedence::Sum,
-        Token::Operator(Operator::MULTI) => Precedence::Product,
-        Token::Operator(Operator::DIVIDE) => Precedence::Product,
+        Token::Operator(Operator::Plus) => Precedence::Sum,
+        Token::Operator(Operator::Minus) => Precedence::Sum,
+        Token::Operator(Operator::Multi) => Precedence::Product,
+        Token::Operator(Operator::Divide) => Precedence::Product,
 
-        Token::Operator(Operator::EQUAL) => Precedence::Equals,
+        Token::Operator(Operator::Equal) => Precedence::Equals,
 
-        Token::Operator(Operator::GT) => Precedence::LessGreater,
-        Token::Operator(Operator::GE) => Precedence::LessGreater,
-        Token::Operator(Operator::LT) => Precedence::LessGreater,
-        Token::Operator(Operator::LE) => Precedence::LessGreater,
+        Token::Operator(Operator::Gt) => Precedence::LessGreater,
+        Token::Operator(Operator::Ge) => Precedence::LessGreater,
+        Token::Operator(Operator::Lt) => Precedence::LessGreater,
+        Token::Operator(Operator::Le) => Precedence::LessGreater,
         _ => Precedence::Lowest,
     }
 }
 
 fn get_prefix_fn(token: &Token) -> fn(parser: &mut Parser) -> Box<dyn Expression> {
     match token {
-        Token::Operator(Operator::MINUS) => parse_prefix_expression,
+        Token::Operator(Operator::Minus) => parse_prefix_expression,
         Token::Seperator(Seperator::LParen) => parse_grouped_expression,
         _ => {
             tracing::error!(?token, "unexpected token for get prefix fn");
@@ -139,21 +138,21 @@ fn get_infix_fn(
     token: &Token,
 ) -> Option<fn(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<dyn Expression>> {
     match token {
-        Token::Operator(Operator::PLUS) => Some(parse_infix_expression),
-        Token::Operator(Operator::MINUS) => Some(parse_infix_expression),
-        Token::Operator(Operator::MULTI) => Some(parse_infix_expression),
-        Token::Operator(Operator::EQUAL) => Some(parse_infix_expression),
-        Token::Operator(Operator::MODULO) => Some(parse_infix_expression),
+        Token::Operator(Operator::Plus) => Some(parse_infix_expression),
+        Token::Operator(Operator::Minus) => Some(parse_infix_expression),
+        Token::Operator(Operator::Multi) => Some(parse_infix_expression),
+        Token::Operator(Operator::Equal) => Some(parse_infix_expression),
+        Token::Operator(Operator::Modulo) => Some(parse_infix_expression),
 
-        Token::Operator(Operator::GT) => Some(parse_infix_expression),
-        Token::Operator(Operator::GE) => Some(parse_infix_expression),
-        Token::Operator(Operator::LT) => Some(parse_infix_expression),
-        Token::Operator(Operator::LE) => Some(parse_infix_expression),
+        Token::Operator(Operator::Gt) => Some(parse_infix_expression),
+        Token::Operator(Operator::Ge) => Some(parse_infix_expression),
+        Token::Operator(Operator::Lt) => Some(parse_infix_expression),
+        Token::Operator(Operator::Le) => Some(parse_infix_expression),
         _ => None,
     }
 }
 
-pub fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
+pub fn parse_token(parser: &mut Parser, expected: Token) -> Result<()> {
     if let Some(t) = parser.current() {
         debug!("parsing keyword {t:?}");
         if *t == expected {
@@ -167,28 +166,44 @@ pub fn parse_keyword(parser: &mut Parser, expected: Token) -> Result<()> {
             .into());
         }
     };
-    return Err(ParseError::ParseError("expected token".to_string()).into());
+
+    Err(ParseError::ParseError("expected token").into())
 }
 
 pub fn parse_columns(parser: &mut Parser) -> Result<StatementColumns> {
+    if *parser
+        .current()
+        .ok_or_else(|| ParseError::ParseError("expected column token"))?
+        == Token::Operator(Operator::Multi)
+    {
+        return Ok(StatementColumns::Wildcard);
+    };
+
     let mut columns: Vec<String> = vec![];
 
     while let Some(t) = parser.current() {
         debug!("parsing columns {t:?}");
         match t {
-            Token::Operator(Operator::MULTI) => return Ok(StatementColumns::Wildcard),
             Token::Ident(i) => {
                 columns.push(i.clone());
                 parser.next();
             }
-            Token::Keyword(_) => {
-                return if columns.is_empty() {
-                    Err(ParseError::ParseError("no columns provided!".to_string()).into())
+            Token::Seperator(Seperator::RParen) => {
+                if columns.is_empty() {
+                    return Err(ParseError::ParseError("no columns provided!").into());
                 } else {
-                    Ok(StatementColumns::Cols(columns))
+                    parser.next();
+                    return Ok(StatementColumns::Cols(columns));
                 };
             }
-            Token::Seperator(Seperator::Comma) => {
+            Token::Keyword(_) => {
+                if columns.is_empty() {
+                    return Err(ParseError::ParseError("no columns provided!").into());
+                } else {
+                    return Ok(StatementColumns::Cols(columns));
+                };
+            }
+            Token::Seperator(Seperator::Comma) | Token::Seperator(Seperator::LParen) => {
                 parser.next();
                 continue;
             }
@@ -202,7 +217,7 @@ pub fn parse_columns(parser: &mut Parser) -> Result<StatementColumns> {
         }
     }
 
-    Err(ParseError::ParseError("missing token".to_string()).into())
+    Err(ParseError::ParseError("missing token").into())
 }
 
 // columns and table names
@@ -222,7 +237,7 @@ pub fn parse_identifier(parser: &mut Parser) -> Result<String> {
             .into()),
         }
     } else {
-        Err(ParseError::ParseError("missing token".to_string()).into())
+        Err(ParseError::ParseError("missing token").into())
     }
 }
 
@@ -241,10 +256,11 @@ pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
             }
             Token::Ident(ident) => {
                 let column = ident.to_owned();
+                parser.next();
                 let operator = parse_operator(parser)?;
-                let expr = parse_expression_statement(parser).ok_or_else(|| {
-                    ParseError::ParseError("couldnt parse expression".to_string())
-                })?;
+                parser.next();
+                let expr = parse_expression_statement(parser)
+                    .ok_or_else(|| ParseError::ParseError("couldnt parse expression"))?;
 
                 let index = StatementIndex {
                     column,
@@ -255,7 +271,7 @@ pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
                 parser.next();
             }
 
-            Token::EOF => break,
+            Token::Eof => break,
             Token::Seperator(Seperator::Semicolon) => break,
             Token::Keyword(_) => break,
 
@@ -275,14 +291,14 @@ pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
 pub fn parse_operator(parser: &mut Parser) -> Result<Operator> {
     debug!("parsing operator");
 
-    if let Some(t) = parser.next() {
+    if let Some(t) = parser.current() {
         match t {
-            Token::Operator(Operator::ASSIGN) => Ok(Operator::EQUAL),
-            Token::Operator(Operator::EQUAL) => Ok(Operator::EQUAL),
-            Token::Operator(Operator::GE) => Ok(Operator::GE),
-            Token::Operator(Operator::GT) => Ok(Operator::GT),
-            Token::Operator(Operator::LE) => Ok(Operator::LE),
-            Token::Operator(Operator::LT) => Ok(Operator::LT),
+            Token::Operator(Operator::Assign) => Ok(Operator::Equal),
+            Token::Operator(Operator::Equal) => Ok(Operator::Equal),
+            Token::Operator(Operator::Ge) => Ok(Operator::Ge),
+            Token::Operator(Operator::Gt) => Ok(Operator::Gt),
+            Token::Operator(Operator::Le) => Ok(Operator::Le),
+            Token::Operator(Operator::Lt) => Ok(Operator::Lt),
 
             t => Err(ParseError::InvalidToken {
                 expected: "comparison operator".to_string(),
@@ -291,23 +307,23 @@ pub fn parse_operator(parser: &mut Parser) -> Result<Operator> {
             .into()),
         }
     } else {
-        Err(ParseError::ParseError("missing token".to_string()).into())
+        Err(ParseError::ParseError("missing token").into())
     }
 }
 
 pub fn parse_limit(parser: &mut Parser) -> Result<Box<dyn Expression>> {
     info!("parsing LIMIT clause");
 
+    parser.next();
     parse_expression_statement(parser)
-        .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed".to_string()).into())
+        .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed").into())
 }
 
 pub fn parse_expression_statement(parser: &mut Parser) -> Option<Box<dyn Expression>> {
     info!(?parser.lexer.current, ?parser.lexer.next, "parsing expression statement");
 
-    parser.next();
-    let expr = parser.parse_expression(Precedence::Lowest);
-    expr
+    // parser.next();
+    parser.parse_expression(Precedence::Lowest)
 }
 
 fn parse_prefix_expression(parser: &mut Parser) -> Box<dyn Expression> {

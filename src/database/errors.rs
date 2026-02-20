@@ -204,7 +204,7 @@ pub enum TXError {
 #[derive(Error, Debug)]
 pub enum ParseError {
     #[error("parsing error: {0}")]
-    ParseError(String),
+    ParseError(&'static str),
     #[error("expected {expected}, got {got}")]
     InvalidToken { expected: String, got: String },
 }
