@@ -83,8 +83,8 @@ impl MetaTable {
         })
     }
 
-    pub fn as_table(self) -> Table {
-        self.0
+    pub fn as_table_ref(&self) -> &Table {
+        &self.0
     }
 }
 
@@ -116,6 +116,9 @@ impl TDefTable {
             }],
             _priv: PhantomData,
         })
+    }
+    pub fn as_table_ref(&self) -> &Table {
+        &self.0
     }
 }
 

@@ -1,17 +1,11 @@
 use crate::database::tables::Record;
 
+#[derive(Debug, Default)]
 pub struct DBResponse {
     query_result: Option<QueryResponse>,
 }
 
-impl Default for DBResponse {
-    fn default() -> Self {
-        Self {
-            query_result: Default::default(),
-        }
-    }
-}
-
+#[derive(Debug, Default)]
 struct QueryResponse {
     columns: Vec<String>,
     rows: Vec<Record>,

@@ -21,7 +21,7 @@ use crate::database::{
 
 /// Transaction struct, on a per thread basis
 pub struct TX {
-    pub db: Arc<TXDB>,     // resources
+    pub store: Arc<TXDB>,  // resources
     pub tree: BTree<TXDB>, // snapshot
 
     pub version: u64,
@@ -61,11 +61,31 @@ impl TX {
 impl TX {
     /// wrapper function for read_table()
     #[instrument(name = "get table", skip_all)]
-    pub fn get_table(&mut self, name: &str) -> Option<Arc<Table>> {
+    pub fn get_table(&self, name: &str) -> Option<Arc<Table>> {
         info!(name, "getting table");
-        self.db
-            .db_link
-            .read_table_buffer(name, self.version, &self.tree)
+
+        // get from buffer
+        if self.store.read_table_buffer(name).is_some() {
+            return self.store.read_table_buffer(name);
+        }
+
+        // retrieve from tree
+        let t_def = self.store.get_tdef().as_table_ref();
+
+        let key = Query::by_col(t_def)
+            .add(DEF_TABLE_COL1, name)
+            .encode()
+            .ok()?;
+
+        if let Some(t) = self.tree_get(key) {
+            debug!("returning table from tree");
+
+            self.store.insert_table(Table::decode(t).ok()?);
+            self.store.read_table_buffer(name)
+        } else {
+            debug!("table not found");
+            None
+        }
     }
 
     #[instrument(name = "new table id", skip_all)]
@@ -76,8 +96,8 @@ impl TX {
 
         self.key_range.listen();
 
-        let meta = self.db.db_link.get_meta(&self.tree);
-        let key = Query::by_col(&meta)
+        let meta = self.store.get_meta().as_table_ref();
+        let key = Query::by_col(meta)
             .add(META_TABLE_COL1, META_TABLE_ID_ROW) // we query name column, where pkey = tid
             .encode()?;
 
@@ -91,7 +111,7 @@ impl TX {
                     let (k, v) = Record::new()
                         .add(META_TABLE_ID_ROW)
                         .add(i + 1)
-                        .encode(&meta)?
+                        .encode(meta)?
                         .next()
                         .unwrap();
 
@@ -118,7 +138,7 @@ impl TX {
                 let (k, v) = Record::new()
                     .add(META_TABLE_ID_ROW)
                     .add(3)
-                    .encode(&meta)?
+                    .encode(meta)?
                     .next()
                     .unwrap();
 
@@ -154,7 +174,7 @@ impl TX {
         let (k, v) = Record::new()
             .add(table.name.clone())
             .add(table.encode()?)
-            .encode(&self.db.db_link.t_def)?
+            .encode(&self.store.db_link.t_def)?
             .next()
             .ok_or_else(|| TableError::InsertTableError("record iterator failure".to_string()))?;
 
@@ -173,7 +193,7 @@ impl TX {
         if self.kind == TXKind::Read {
             return Err(TXError::MismatchedKindError.into());
         }
-        self.db.db_link.evict_table(&table.name)?;
+        self.store.evict_table(&table.name);
 
         self.key_range.listen();
 
@@ -181,7 +201,7 @@ impl TX {
         let (k, v) = Record::new()
             .add(table.name.clone())
             .add(table.encode()?)
-            .encode(&self.db.db_link.t_def)?
+            .encode(&self.store.db_link.t_def)?
             .next()
             .ok_or_else(|| TableError::InsertTableError("record iterator failure".to_string()))?;
 
@@ -221,7 +241,7 @@ impl TX {
         self.key_range.listen();
 
         // delete from tdef
-        let qu = Query::by_col(&self.db.db_link.t_def)
+        let qu = Query::by_col(&self.store.db_link.t_def)
             .add(DEF_TABLE_COL1, name)
             .encode()?;
 
@@ -233,7 +253,7 @@ impl TX {
         self.key_range.capture_and_stop();
 
         // evict from buffer
-        self.db.db_link.evict_table(name)?;
+        self.store.evict_table(&table.name);
 
         Ok(())
     }

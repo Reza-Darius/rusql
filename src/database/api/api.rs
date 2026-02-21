@@ -29,6 +29,7 @@ impl Database {
 
 impl Database {
     fn execute(&self, statement: Statement) -> Result<DBResponse> {
+        // TODO: set up worker
         match statement {
             Statement::Select(select_statement) => todo!(),
             Statement::Insert(insert_statement) => todo!(),
@@ -55,6 +56,10 @@ fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
     }
 
     Ok(DBResponse::default())
+}
+
+fn validate_select(stmt: &SelectStatement) -> Result<()> {
+    Ok(())
 }
 
 fn exec_insert(db: &Database, stmt: SelectStatement) -> Result<()> {

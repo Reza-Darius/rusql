@@ -5,6 +5,7 @@ use std::{cell::RefCell, sync::Arc};
 use tracing::debug;
 
 use crate::database::pager::diskpager::PageOrigin;
+use crate::database::tables::tables::{MetaTable, TDefTable, Table};
 use crate::database::{
     pager::{NodeFlag, Pager},
     transactions::{kvdb::KVDB, tx::TXKind},
@@ -15,7 +16,8 @@ use crate::debug_if_env;
 // per transaction resource struct
 pub struct TXDB {
     pub db_link: Arc<KVDB>,                // shared resource
-    pub tx_buf: Option<RefCell<TXBuffer>>, // isolated resource
+    pub tx_buf: Option<RefCell<TXBuffer>>, // isolated resource for write operations
+    pub tables: RefCell<HashMap<String, Arc<Table>>>,
     pub version: u64,
 }
 
@@ -36,6 +38,7 @@ impl TXDB {
             TXKind::Read => Self {
                 db_link: db.clone(),
                 tx_buf: None,
+                tables: RefCell::new(HashMap::new()),
                 version: db.pager.version.load(Ordering::Acquire),
             },
             TXKind::Write => Self {
@@ -45,6 +48,7 @@ impl TXDB {
                     dealloc_map: HashSet::new(),
                     nappend: 0,
                 })),
+                tables: RefCell::new(HashMap::new()),
                 version: db.pager.version.load(Ordering::Acquire),
             },
         }
@@ -84,6 +88,31 @@ impl TXDB {
             }
         }
         true
+    }
+
+    pub fn get_meta(&self) -> &MetaTable {
+        &self.db_link.t_meta
+    }
+
+    pub fn get_tdef(&self) -> &TDefTable {
+        &self.db_link.t_def
+    }
+
+    // get table from TX buffer
+    pub fn read_table_buffer(&self, table_name: &str) -> Option<Arc<Table>> {
+        self.tables.borrow().get(table_name).map(|t| t.clone())
+    }
+
+    // insert table into TX buffer
+    pub fn insert_table(&self, table: Table) {
+        self.tables
+            .borrow_mut()
+            .insert(table.name.clone(), Arc::new(table));
+    }
+
+    // evicts a table from the TX buffer
+    pub fn evict_table(&self, table_name: &str) {
+        self.tables.borrow_mut().remove(table_name);
     }
 }
 

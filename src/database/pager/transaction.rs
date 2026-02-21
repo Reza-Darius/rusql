@@ -46,7 +46,7 @@ impl Transaction for DiskPager {
         info!("new TX for version: {version}");
 
         TX {
-            db: txdb,
+            store: txdb,
             tree: BTree {
                 root_ptr,
                 pager: weak,
@@ -66,7 +66,7 @@ impl Transaction for DiskPager {
             return Ok(CommitStatus::StaleVersion);
         }
 
-        let tx_buf = tx.db.tx_buf.as_ref().unwrap().borrow_mut();
+        let tx_buf = tx.store.tx_buf.as_ref().unwrap().borrow_mut();
         let mut fl_guard = self.freelist.write();
 
         // adding freelist pages back to the
@@ -210,7 +210,7 @@ impl DiskPager {
     fn flush_tx(&self, tx: &TX) -> Result<()> {
         debug!("flushing TX buffer");
 
-        let tx_buf = tx.db.tx_buf.as_ref().unwrap().borrow();
+        let tx_buf = tx.store.tx_buf.as_ref().unwrap().borrow();
         let nwrites = tx_buf.write_map.len();
         let npages = self.npages.load(R);
 
@@ -286,7 +286,7 @@ impl DiskPager {
         debug!("flushing freelist");
 
         let mut fl_guard = self.freelist.write();
-        let tx_buf = tx.db.tx_buf.as_ref().unwrap().borrow();
+        let tx_buf = tx.store.tx_buf.as_ref().unwrap().borrow();
         let npages = self.npages.load(R);
 
         let mut count = 0;

@@ -434,7 +434,7 @@ impl DiskPager {
         fl_guard.set_config(&flc);
         drop(fl_guard);
 
-        tx.db
+        tx.store
             .tx_buf
             .as_ref()
             .unwrap()
