@@ -61,7 +61,7 @@ impl TX {
 impl TX {
     /// wrapper function for read_table()
     #[instrument(name = "get table", skip_all)]
-    fn get_table(&mut self, name: &str) -> Option<Arc<Table>> {
+    pub fn get_table(&mut self, name: &str) -> Option<Arc<Table>> {
         info!(name, "getting table");
         self.db
             .db_link
@@ -361,7 +361,7 @@ impl TX {
         Ok(modified)
     }
 
-    fn delete_from_query(&mut self, q: QueryCol, schema: &Table) -> Result<()> {
+    pub fn delete_from_query(&mut self, q: QueryCol, schema: &Table) -> Result<()> {
         let key = q.encode()?;
 
         // getting full record
@@ -376,7 +376,7 @@ impl TX {
     }
 
     /// deletes a record and potential secondary indicies
-    fn delete_rec(&mut self, rec: Record, schema: &Table) -> Result<u32> {
+    pub fn delete_rec(&mut self, rec: Record, schema: &Table) -> Result<u32> {
         info!(?rec, "deleting record");
         if self.kind == TXKind::Read {
             return Err(TXError::MismatchedKindError.into());
@@ -423,7 +423,7 @@ impl TX {
     ///
     /// returns the number of modified keys
     #[instrument(name = "create index", skip(self, table))]
-    fn create_index(&mut self, idx_name: &str, col: &str, table: &mut Table) -> Result<u32> {
+    pub fn create_index(&mut self, idx_name: &str, col: &str, table: &mut Table) -> Result<u32> {
         if let None = table.idx_exists(idx_name) {
             table.create_index(idx_name)?;
         }
@@ -470,7 +470,7 @@ impl TX {
     ///
     /// returns number of modified keys
     #[instrument(name = "delete index", skip(self, table))]
-    fn delete_index(&mut self, idx_name: &str, table: &mut Table) -> Result<u32> {
+    pub fn delete_index(&mut self, idx_name: &str, table: &mut Table) -> Result<u32> {
         // get prefix
         let idx = match table.idx_exists(idx_name) {
             Some(idx) => idx,

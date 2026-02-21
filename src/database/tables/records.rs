@@ -201,7 +201,7 @@ impl<'a> QueryCol<'a> {
     /// add the column and key which you want to query, can only be used on QueryKey
     ///
     /// not sensitive to order, but all keys for an index have to be provided and need to match the designated data type
-    pub fn add<T: InputData>(mut self, col: &str, value: T) -> Self {
+    pub fn add(mut self, col: &str, value: impl InputData) -> Self {
         self.data.insert(col.to_string(), value.into_cell());
         self
     }

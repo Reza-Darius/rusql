@@ -361,7 +361,7 @@ impl Table {
         Ok(())
     }
 
-    /// adds a secondary index, returns idx into the idx arr
+    /// adds a column to a secondary index, returns idx into the index array
     pub fn add_col_to_index(&mut self, idx_name: &str, col: &str) -> Result<usize> {
         if col.is_empty() || idx_name.is_empty() {
             return Err(

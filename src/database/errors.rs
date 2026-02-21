@@ -42,6 +42,8 @@ pub enum Error {
     ScanError(#[from] ScanError),
     #[error("Transaction error, {0}")]
     TransactionError(#[from] TXError),
+    #[error("execution error, {0}")]
+    ExecutionError(#[from] ExecError),
 
     // casting
     #[error("Casting from String error, {0}")]
@@ -207,4 +209,10 @@ pub enum ParseError {
     ParseError(&'static str),
     #[error("expected {expected}, got {got}")]
     InvalidToken { expected: String, got: String },
+}
+
+#[derive(Error, Debug)]
+pub enum ExecError {
+    #[error("execution error: {0}")]
+    ExecutionError(&'static str),
 }

@@ -15,16 +15,12 @@ pub enum Statement {
     Create(CreateStatement),
 }
 
-impl Statement {
-    fn execute(self) {}
-}
-
 #[derive(Debug)]
 pub struct SelectStatement {
-    columns: StatementColumns,
-    table: String,
-    index: Option<Vec<StatementIndex>>,
-    limit: Option<Box<dyn Expression>>,
+    pub columns: StatementColumns,
+    pub table: String,
+    pub index: Option<Vec<StatementIndex>>,
+    pub limit: Option<Box<dyn Expression>>,
 }
 
 pub fn parse_select(parser: &mut Parser) -> Result<Statement> {

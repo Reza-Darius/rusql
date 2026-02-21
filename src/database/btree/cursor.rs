@@ -179,6 +179,7 @@ pub(crate) struct ScanIter<'a, P: Pager> {
 }
 
 impl<P: Pager> ScanIter<'_, P> {
+    /// decodes key value pairs into a record type, note: the TID and prefix gets lost in the conversion
     pub fn collect_records(self) -> Vec<Record> {
         self.into_iter().map(|kv| Record::from_kv(kv)).collect()
     }
