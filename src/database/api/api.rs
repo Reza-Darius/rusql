@@ -45,14 +45,18 @@ impl Database {
 
 fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
     let table = tx
-        .get_table(&stmt.table)
+        .get_table(&stmt.table_name)
         .ok_or_else(|| ExecError::ExecutionError("table not found"))?;
 
     // validate columns
     if let StatementColumns::Cols(ref columns) = stmt.columns {
-        if !columns.iter().all(|e| table.col_exists(e).is_some()) {
-            return Err(ExecError::ExecutionError("couldnt find column in table schema").into());
-        };
+        for col in columns.iter() {
+            if table.col_exists(col).is_none() {
+                return Err(
+                    ExecError::ExecutionError("couldnt find column in table schema").into(),
+                );
+            }
+        }
     }
 
     Ok(DBResponse::default())

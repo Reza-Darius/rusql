@@ -203,7 +203,7 @@ impl GC for FreeList {
                 // both pointer meet on the same page = free list is empty
                 break;
             }
-            let ptr = node.as_fl().get_ptr(seq_to_idx(head)).0;
+            let ptr = node.unwrap_fl().get_ptr(seq_to_idx(head)).0;
 
             debug_if_env!("RUSQL_LOG_PEEK", {
                 debug!("pushing {ptr}");
@@ -213,7 +213,7 @@ impl GC for FreeList {
             head += 1;
 
             if seq_to_idx(head) == 0 {
-                head_page = node.as_fl().get_next();
+                head_page = node.unwrap_fl().get_next();
                 debug!("peeking at {head_page}");
                 node = match buf.get(head_page) {
                     Some(n) => n,
@@ -381,7 +381,7 @@ impl FreeList {
             }
         };
 
-        let node_ptr = entry.as_fl();
+        let node_ptr = entry.unwrap_fl();
         node_ptr.get_ptr(idx)
     }
 
@@ -404,7 +404,7 @@ impl FreeList {
             }
         };
 
-        let node_ptr = entry.as_fl_mut();
+        let node_ptr = entry.unwrap_fl_mut();
         node_ptr.set_ptr(idx, ptr, version);
         buf.debug_print();
         buf.set_dirty(&fl);
@@ -429,7 +429,7 @@ impl FreeList {
             }
         };
 
-        let node_ptr = entry.as_fl();
+        let node_ptr = entry.unwrap_fl();
         node_ptr.get_next()
     }
 
@@ -452,7 +452,7 @@ impl FreeList {
             }
         };
 
-        let node_ptr = entry.as_fl_mut();
+        let node_ptr = entry.unwrap_fl_mut();
         node_ptr.set_next(ptr);
         buf.set_dirty(&fl);
     }

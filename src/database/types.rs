@@ -11,7 +11,6 @@ use crate::database::{
     btree::TreeNode,
     pager::{diskpager::NodeFlag, freelist::FLNode},
 };
-use tracing::error;
 
 pub const BTREE_MAX_KEY_SIZE: usize = 1000;
 pub const BTREE_MAX_VAL_SIZE: usize = 3000;
@@ -53,27 +52,24 @@ impl Debug for Node {
 
 impl Node {
     /// deconstructs node to tree node, will panic if used on a FL node!
-    pub fn as_tn(&self) -> &TreeNode {
+    pub fn unwrap_tn(&self) -> &TreeNode {
         let Node::Tree(n) = self else {
-            error!("Tree node deconstructor used on FL node!");
             panic!("Tree node deconstructor used on FL node!")
         };
         n
     }
 
     /// deconstructs node to FL node, will panic if used on a tree node!
-    pub fn as_fl(&self) -> &FLNode {
+    pub fn unwrap_fl(&self) -> &FLNode {
         let Node::Freelist(n) = self else {
-            error!("FL node deconstructor used on tree node!");
             panic!("FL node deconstructor used on tree node!")
         };
         n
     }
 
     /// deconstructs node to FL node, will panic if used on a tree node!
-    pub fn as_fl_mut(&mut self) -> &mut FLNode {
+    pub fn unwrap_fl_mut(&mut self) -> &mut FLNode {
         let Node::Freelist(n) = self else {
-            error!("FL node deconstructor used on tree node!");
             panic!("FL node deconstructor used on tree node!")
         };
         n

@@ -52,11 +52,11 @@ impl<'a> Parser<'a> {
     }
 
     fn prec_current(&self) -> Precedence {
-        check_prec(self.current().expect("this wont get called on non"))
+        check_prec(&self.lexer.current)
     }
 
     fn prec_next(&self) -> Precedence {
-        check_prec(self.peek().expect("this wont get called on non"))
+        check_prec(&self.lexer.next)
     }
 
     fn parse_expression(&mut self, prec: Precedence) -> Option<Box<dyn Expression>> {
@@ -73,13 +73,6 @@ impl<'a> Parser<'a> {
                 }
             }
         };
-
-        // are we at the end of an expression?
-        match self.peek()? {
-            Token::Keyword(_) => return Some(left_expr),
-            Token::Seperator(Seperator::Semicolon) => return Some(left_expr),
-            _ => (),
-        }
 
         debug!(
             "comparing prec {:?} with prec_next {:?} of token {:?}",
@@ -260,7 +253,8 @@ pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
                 let operator = parse_operator(parser)?;
                 parser.next();
                 let expr = parse_expression_statement(parser)
-                    .ok_or_else(|| ParseError::ParseError("couldnt parse expression"))?;
+                    .ok_or_else(|| ParseError::ParseError("couldnt parse expression"))?
+                    .evaluate()?;
 
                 let index = StatementIndex {
                     column,
@@ -311,12 +305,19 @@ pub fn parse_operator(parser: &mut Parser) -> Result<Operator> {
     }
 }
 
-pub fn parse_limit(parser: &mut Parser) -> Result<Box<dyn Expression>> {
+pub fn parse_limit(parser: &mut Parser) -> Result<StatementLimit> {
     info!("parsing LIMIT clause");
 
     parser.next();
-    parse_expression_statement(parser)
-        .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed").into())
+    match parse_expression_statement(parser)
+        .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed"))?
+        .evaluate()?
+    {
+        ValueObject::Str(_) => {
+            return Err(ParseError::ParseError("cant use strings for limit clause").into());
+        }
+        ValueObject::Int(i) => Ok(StatementLimit(i)),
+    }
 }
 
 pub fn parse_expression_statement(parser: &mut Parser) -> Option<Box<dyn Expression>> {
@@ -353,6 +354,7 @@ fn parse_infix_expression(parser: &mut Parser, lhs: Box<dyn Expression>) -> Box<
     };
     let prec = parser.prec_current();
     parser.lexer.next();
+    debug!(?parser.lexer.current, "parsing rhs");
     expr.rhs = parser.parse_expression(prec);
 
     expr
@@ -380,6 +382,7 @@ mod parser_test {
     fn expression_test1() {
         let input = "10 + 10";
         let mut parser = Parser::new(input);
+        parser.next();
         let expr = parse_expression_statement(&mut parser)
             .unwrap()
             .evaluate()
@@ -389,6 +392,7 @@ mod parser_test {
 
         let input = "(-(10 - 5) * 2)";
         let mut parser = Parser::new(input);
+        parser.next();
         let expr = parse_expression_statement(&mut parser)
             .unwrap()
             .evaluate()
@@ -398,6 +402,7 @@ mod parser_test {
 
         let input = "\"hello\" + \"world\"";
         let mut parser = Parser::new(input);
+        parser.next();
         let expr = parse_expression_statement(&mut parser)
             .unwrap()
             .evaluate()

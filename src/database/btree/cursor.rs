@@ -285,8 +285,8 @@ impl<'a, P: Pager> Cursor<'a, P> {
         let node = &self.path[self.path.len() - 1];
         let idx = self.pos[self.path.len() - 1];
 
-        let key = node.as_tn().get_key(idx).unwrap();
-        let val = node.as_tn().get_val(idx).unwrap();
+        let key = node.unwrap_tn().get_key(idx).unwrap();
+        let val = node.unwrap_tn().get_val(idx).unwrap();
         (key, val)
     }
 
@@ -301,7 +301,7 @@ impl<'a, P: Pager> Cursor<'a, P> {
     }
 
     fn iter_next(&mut self, level: usize) {
-        if self.pos[level] + 1 < self.path[level].as_tn().get_nkeys() {
+        if self.pos[level] + 1 < self.path[level].unwrap_tn().get_nkeys() {
             // move within node
             self.pos[level] += 1;
         } else if level > 0 {
@@ -315,7 +315,7 @@ impl<'a, P: Pager> Cursor<'a, P> {
         if level + 1 < self.pos.len() {
             // we are in a non leaf node and need to retrieve the next sibling
             let node = &self.path[level];
-            let kid = self.tree.decode(node.as_tn().get_ptr(self.pos[level]));
+            let kid = self.tree.decode(node.unwrap_tn().get_ptr(self.pos[level]));
 
             self.path[level + 1] = kid;
             self.pos[level + 1] = 0;
@@ -352,9 +352,9 @@ impl<'a, P: Pager> Cursor<'a, P> {
         if level + 1 < self.pos.len() {
             // we are in a non leaf node and need to retrieve the next sibling
             let node = &self.path[level];
-            let kid = self.tree.decode(node.as_tn().get_ptr(self.pos[level]));
+            let kid = self.tree.decode(node.unwrap_tn().get_ptr(self.pos[level]));
 
-            self.pos[level + 1] = kid.as_tn().get_nkeys() - 1;
+            self.pos[level + 1] = kid.unwrap_tn().get_nkeys() - 1;
             self.path[level + 1] = kid;
         }
     }
@@ -414,10 +414,10 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
     while let Some(p) = ptr {
         let node = tree.decode(p);
 
-        ptr = match node.as_tn().get_type() {
+        ptr = match node.unwrap_tn().get_type() {
             NodeType::Node => {
-                let idx = node_lookup(node.as_tn(), &key, &SeekConfig::Pred(Compare::LE))?; // navigating nodes
-                let ptr = node.as_tn().get_ptr(idx);
+                let idx = node_lookup(node.unwrap_tn(), &key, &SeekConfig::Pred(Compare::LE))?; // navigating nodes
+                let ptr = node.unwrap_tn().get_ptr(idx);
 
                 cursor.path.push(node);
                 cursor.pos.push(idx);
@@ -425,7 +425,7 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
                 Some(ptr)
             }
             NodeType::Leaf => {
-                let idx = node_lookup(node.as_tn(), &key, &flag)?;
+                let idx = node_lookup(node.unwrap_tn(), &key, &flag)?;
                 debug_if_env!("RUSQL_LOG_CURSOR", {
                     debug!(idx, "seek idx after lookup");
                 });

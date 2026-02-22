@@ -657,7 +657,7 @@ impl TreeNode {
         // check left
         if idx > 0 {
             let sibling = tree.decode(self.get_ptr(idx - 1));
-            let sibling_size = sibling.as_tn().nbytes();
+            let sibling_size = sibling.unwrap_tn().nbytes();
             if sibling_size + new_size < PAGE_SIZE as u16 {
                 return Some(MergeDirection::Left(sibling));
             }
@@ -665,7 +665,7 @@ impl TreeNode {
         // check right
         if idx + 1 < self.get_nkeys() {
             let sibling = tree.decode(self.get_ptr(idx + 1));
-            let sibling_size = sibling.as_tn().nbytes();
+            let sibling_size = sibling.unwrap_tn().nbytes();
             if sibling_size + new_size < PAGE_SIZE as u16 {
                 return Some(MergeDirection::Right(sibling));
             }

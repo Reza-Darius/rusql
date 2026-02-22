@@ -209,10 +209,14 @@ pub enum ParseError {
     ParseError(&'static str),
     #[error("expected {expected}, got {got}")]
     InvalidToken { expected: String, got: String },
+    #[error("error when validating")]
+    ValidationError(&'static str),
 }
 
 #[derive(Error, Debug)]
 pub enum ExecError {
     #[error("execution error: {0}")]
     ExecutionError(&'static str),
+    #[error("error when validating")]
+    ValidationError(&'static str),
 }

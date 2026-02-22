@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::database::errors::{ParseError, Result};
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub enum Token {
     Illegal,
@@ -101,6 +103,30 @@ pub enum Operator {
     Le,
     Gt,
     Ge,
+}
+
+impl Operator {
+    // is the provided operator appropiate for string arithmetic
+    pub fn is_valid_for_str(&self) -> Result<()> {
+        match self {
+            Operator::Plus => Ok(()),
+            _ => Err(ParseError::ValidationError("strings only support the + operator").into()),
+        }
+    }
+
+    // is the provided operator appropiate for comparisons like in WHERE clauses
+    pub fn is_valid_cmp(&self) -> Result<()> {
+        match self {
+            Operator::Assign => Ok(()),
+            Operator::Equal => Ok(()),
+            Operator::Lt => Ok(()),
+            Operator::Le => Ok(()),
+            Operator::Gt => Ok(()),
+            Operator::Ge => Ok(()),
+
+            _ => Err(ParseError::ValidationError("invalid comparison operator").into()),
+        }
+    }
 }
 
 pub const ASSIGN: char = '=';
