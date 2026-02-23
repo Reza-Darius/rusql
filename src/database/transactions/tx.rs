@@ -15,14 +15,14 @@ use crate::database::{
             PKEY_PREFIX, Table,
         },
     },
-    transactions::{keyrange::KeyRange, txdb::TXDB},
+    transactions::{keyrange::KeyRange, txdb::TXStore},
     types::DataCell,
 };
 
 /// Transaction struct, on a per thread basis
 pub struct TX {
-    pub store: Arc<TXDB>,  // resources
-    pub tree: BTree<TXDB>, // snapshot
+    pub store: Arc<TXStore>,  // resources
+    pub tree: BTree<TXStore>, // snapshot
 
     pub version: u64,
     pub kind: TXKind,
@@ -48,7 +48,7 @@ impl TX {
         self.tree.set(key, value, flag)
     }
 
-    fn tree_scan(&self, mode: ScanMode) -> Result<ScanIter<'_, TXDB>> {
+    fn tree_scan(&self, mode: ScanMode) -> Result<ScanIter<'_, TXStore>> {
         self.tree.scan(mode)
     }
 
@@ -259,7 +259,7 @@ impl TX {
     }
 
     /// scans all primary keys in a table
-    pub fn full_table_scan(&self, schema: &Table) -> Result<PrefixScanIter<'_, TXDB>> {
+    pub fn full_table_scan(&self, schema: &Table) -> Result<PrefixScanIter<'_, TXStore>> {
         // writing a seek key with TID and Prefix 0
         let key = Query::by_tid_prefix(schema, PKEY_PREFIX);
         debug!(%key, "full table scan key");
@@ -269,7 +269,7 @@ impl TX {
     /// counts all unique rows inside a table
     pub fn count_rows(&self, schema: &Table) -> Result<u32> {
         let scan = self.full_table_scan(schema)?;
-        Ok(scan.into_iter().count() as u32)
+        Ok(scan.count() as u32)
     }
 
     /// counts all entries inside a table, this includes secondary indices
@@ -535,7 +535,7 @@ mod tables {
         btree::{Compare, ScanMode, SetFlag},
         pager::transaction::Transaction,
         tables::{Query, Record, TypeCol, tables::TableBuilder},
-        transactions::{kvdb::KVDB, tx::TXKind},
+        transactions::{kvdb::StorageEngine, tx::TXKind},
         types::DataCell,
     };
     use std::sync::Arc;
@@ -548,7 +548,7 @@ mod tables {
     fn meta_page() {
         let path = "test-files/meta_page.rdb";
         cleanup_file(path);
-        let _db = Arc::new(KVDB::new(path));
+        let _db = Arc::new(StorageEngine::new(path));
         cleanup_file(path);
     }
 
@@ -556,7 +556,7 @@ mod tables {
     fn tables_encode_decode() {
         let path = "test-files/tables_encode_decode.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -584,7 +584,7 @@ mod tables {
     fn records_insert_search() -> Result<()> {
         let path = "test-files/records_insert_search.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -632,7 +632,7 @@ mod tables {
     fn query_input() {
         let path = "test-files/query_input.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -671,7 +671,7 @@ mod tables {
     fn table_ids() {
         let path = "test-files/table_ids.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         assert_eq!(tx.new_tid().unwrap(), 3);
@@ -686,7 +686,7 @@ mod tables {
     fn table_builder_validations() {
         let path = "test-files/table_builder_validations.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         // empty name
@@ -740,7 +740,7 @@ mod tables {
     fn duplicate_table_name_rejected() {
         let path = "test-files/duplicate_table_name_rejected.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -762,7 +762,7 @@ mod tables {
     fn drop_table_removes_table() {
         let path = "test-files/drop_table_removes_table.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -798,7 +798,7 @@ mod tables {
         let path = "test-files/tid_persist.rdb";
         cleanup_file(path);
         {
-            let db = Arc::new(KVDB::new(path));
+            let db = Arc::new(StorageEngine::new(path));
             let mut tx = db.begin(&db, TXKind::Write);
             assert_eq!(tx.new_tid().unwrap(), 3);
             assert_eq!(tx.new_tid().unwrap(), 4);
@@ -806,7 +806,7 @@ mod tables {
         }
         // reopen
         {
-            let db = Arc::new(KVDB::new(path));
+            let db = Arc::new(StorageEngine::new(path));
             let mut tx = db.begin(&db, TXKind::Write);
             // next tid continues
             assert_eq!(tx.new_tid().unwrap(), 5);
@@ -819,7 +819,7 @@ mod tables {
     fn invalid_queries_rejected() {
         let path = "test-files/invalid_queries_rejected.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -846,7 +846,7 @@ mod tables {
     fn scan_open() -> Result<()> {
         let path = "test-files/scan_open.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table1 = TableBuilder::new()
@@ -917,7 +917,7 @@ mod tables {
     fn full_table_scan_seek() -> Result<()> {
         let path = "test-files/full_table_scan_seek.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table1 = TableBuilder::new()
@@ -991,7 +991,7 @@ mod scan {
     use crate::database::btree::{ScanMode, SetFlag};
     use crate::database::pager::transaction::Transaction;
     use crate::database::tables::{Query, Record, TypeCol, tables::TableBuilder};
-    use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
+    use crate::database::transactions::{kvdb::StorageEngine, tx::TXKind};
     use std::sync::Arc;
 
     use super::*;
@@ -1002,7 +1002,7 @@ mod scan {
     fn scan_range_between_keys() -> Result<()> {
         let path = "test-files/scan_range.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1045,7 +1045,7 @@ mod scan {
     fn scan_multiple_tables_isolation() -> Result<()> {
         let path = "test-files/scan_isolation.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table1 = TableBuilder::new()
@@ -1120,7 +1120,7 @@ mod scan {
     fn scan_with_lt_predicate() -> Result<()> {
         let path = "test-files/scan_lt.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1165,7 +1165,7 @@ mod scan {
     fn scan_empty_result_set() -> Result<()> {
         let path = "test-files/scan_empty.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1204,7 +1204,7 @@ mod scan {
     fn scan_single_record_result() -> Result<()> {
         let path = "test-files/scan_single.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1239,7 +1239,7 @@ mod scan {
     fn scan_with_le_predicate() -> Result<()> {
         let path = "test-files/scan_le.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1281,7 +1281,7 @@ mod scan {
     fn tx_scan_large_dataset() -> Result<()> {
         let path = "test-files/tx_scan_large.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1324,7 +1324,7 @@ mod scan {
     fn scan_byte_string_keys() -> Result<()> {
         let path = "test-files/scan_bytes.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1366,7 +1366,7 @@ mod scan {
     fn scan_after_deletes() -> Result<()> {
         let path = "test-files/scan_after_delete.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1420,7 +1420,7 @@ mod concurrent_tx_tests {
         pager::transaction::{CommitStatus, Retry, Transaction},
         tables::{Query, Record, TypeCol, tables::TableBuilder},
         transactions::{
-            kvdb::KVDB,
+            kvdb::StorageEngine,
             retry::{Backoff, RetryResult, RetryStatus, retry},
             tx::TXKind,
         },
@@ -1437,7 +1437,7 @@ mod concurrent_tx_tests {
         let path = "test-files/records_insert_search.rdb";
         cleanup_file(path);
 
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1556,7 +1556,7 @@ mod concurrent_tx_tests {
         //     .with(file_layer)
         //     .init();
 
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1655,7 +1655,7 @@ mod concurrent_tx_tests {
         let path = "test-files/concurrent_read_same.rdb";
         cleanup_file(path);
 
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1727,7 +1727,7 @@ mod concurrent_tx_tests {
     fn concurrent_read_multi_table() -> Result<()> {
         let path = "test-files/concurrent_read_multi_table.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table1 = TableBuilder::new()
@@ -1820,7 +1820,7 @@ mod concurrent_tx_tests {
     fn concurrent_update_different_keys() -> Result<()> {
         let path = "test-files/concurrent_update_diff.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1909,7 +1909,7 @@ mod concurrent_tx_tests {
     fn concurrent_update_same_key_conflict() -> Result<()> {
         let path = "test-files/concurrent_update_conflict.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -1990,7 +1990,7 @@ mod concurrent_tx_tests {
     fn concurrent_delete_different_keys() -> Result<()> {
         let path = "test-files/concurrent_delete_diff.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2086,7 +2086,7 @@ mod concurrent_tx_tests {
     fn concurrent_delete_same_key_conflict() -> Result<()> {
         let path = "test-files/concurrent_delete_conflict.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2164,7 +2164,7 @@ mod concurrent_tx_tests {
     fn concurrent_mixed_crud_operations() -> Result<()> {
         let path = "test-files/concurrent_mixed_crud.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2266,7 +2266,7 @@ mod concurrent_tx_tests {
     fn concurrent_read_during_writes() -> Result<()> {
         let path = "test-files/concurrent_read_during_writes.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2359,7 +2359,7 @@ mod concurrent_tx_tests {
     fn concurrent_insert_then_read_consistency() -> Result<()> {
         let path = "test-files/concurrent_insert_read_consistency.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2452,7 +2452,7 @@ mod concurrent_tx_tests {
     fn concurrent_full_table_scan() -> Result<()> {
         let path = "test-files/concurrent_full_scan.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2510,7 +2510,7 @@ mod concurrent_tx_tests {
     fn concurrent_insert_with_retry_logic() -> Result<()> {
         let path = "test-files/concurrent_insert_retry.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2573,7 +2573,7 @@ mod concurrent_tx_tests {
     fn concurrent_upsert_same_key() -> Result<()> {
         let path = "test-files/concurrent_upsert_same.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2644,7 +2644,7 @@ mod concurrent_tx_tests {
     fn concurrent_write_after_read() -> Result<()> {
         let path = "test-files/concurrent_write_after_read.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -2729,7 +2729,7 @@ mod secondary_index_ops {
         pager::transaction::{Retry, Transaction},
         tables::{Query, Record, TypeCol, tables::TableBuilder},
         transactions::{
-            kvdb::KVDB,
+            kvdb::StorageEngine,
             retry::{Backoff, RetryResult, RetryStatus, retry},
             tx::TXKind,
         },
@@ -2744,7 +2744,7 @@ mod secondary_index_ops {
     fn insert_record_with_single_secondary_index() -> Result<()> {
         let path = "test-files/insert_single_secondary.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -2804,7 +2804,7 @@ mod secondary_index_ops {
     fn insert_multiple_records_with_secondary_index() -> Result<()> {
         let path = "test-files/insert_multi_secondary.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -2860,7 +2860,7 @@ mod secondary_index_ops {
     fn insert_record_with_multiple_secondary_indices() -> Result<()> {
         let path = "test-files/insert_multi_indices.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -2923,7 +2923,7 @@ mod secondary_index_ops {
     fn delete_record_with_secondary_index() -> Result<()> {
         let path = "test-files/delete_secondary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -2978,7 +2978,7 @@ mod secondary_index_ops {
     fn delete_multiple_records_with_secondary_index() -> Result<()> {
         let path = "test-files/delete_multi_secondary.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3030,7 +3030,7 @@ mod secondary_index_ops {
     fn read_record_via_secondary_index() -> Result<()> {
         let path = "test-files/read_secondary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3104,7 +3104,7 @@ mod secondary_index_ops {
     fn upsert_record_with_secondary_index() -> Result<()> {
         let path = "test-files/upsert_secondary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3161,7 +3161,7 @@ mod secondary_index_ops {
     fn scan_with_secondary_index_key() -> Result<()> {
         let path = "test-files/scan_secondary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3204,7 +3204,7 @@ mod secondary_index_ops {
     fn concurrent_inserts_different_secondary_values() -> Result<()> {
         let path = "test-files/concurrent_secondary_inserts.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3288,7 +3288,7 @@ mod secondary_index_ops {
     fn secondary_index_isolation_across_transactions() -> Result<()> {
         let path = "test-files/secondary_isolation.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3352,7 +3352,7 @@ mod secondary_index_ops {
     fn create_sec_idx_existing_keys() -> Result<()> {
         let path = "create_sec_idx.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -3405,7 +3405,7 @@ mod secondary_index_ops {
     fn delete_sec_idx_existing_keys() -> Result<()> {
         let path = "create_sec_idx.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()

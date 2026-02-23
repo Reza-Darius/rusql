@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::database::errors::{ParseError, Result};
 
@@ -24,8 +24,8 @@ impl Token {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Value {
-    Int(String),
-    Str(String),
+    Int(Rc<str>),
+    Str(Rc<str>),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]

@@ -8,14 +8,14 @@ use crate::database::pager::diskpager::PageOrigin;
 use crate::database::tables::tables::{MetaTable, TDefTable, Table};
 use crate::database::{
     pager::{NodeFlag, Pager},
-    transactions::{kvdb::KVDB, tx::TXKind},
+    transactions::{kvdb::StorageEngine, tx::TXKind},
     types::{Node, Pointer},
 };
 use crate::debug_if_env;
 
 // per transaction resource struct
-pub struct TXDB {
-    pub db_link: Arc<KVDB>,                // shared resource
+pub struct TXStore {
+    pub db_link: Arc<StorageEngine>,       // shared resource
     pub tx_buf: Option<RefCell<TXBuffer>>, // isolated resource for write operations
     pub tables: RefCell<HashMap<String, Arc<Table>>>,
     pub version: u64,
@@ -32,8 +32,8 @@ pub struct TXBufWriteEntry {
     pub origin: PageOrigin,
 }
 
-impl TXDB {
-    pub fn new(db: &Arc<KVDB>, kind: TXKind) -> Self {
+impl TXStore {
+    pub fn new(db: &Arc<StorageEngine>, kind: TXKind) -> Self {
         match kind {
             TXKind::Read => Self {
                 db_link: db.clone(),
@@ -116,7 +116,7 @@ impl TXDB {
     }
 }
 
-impl Pager for TXDB {
+impl Pager for TXStore {
     fn page_read(&self, ptr: Pointer, flag: NodeFlag) -> Arc<Node> {
         assert_ne!(ptr.get(), 0);
         // read own buffer first

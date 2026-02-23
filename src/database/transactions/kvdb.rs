@@ -13,15 +13,15 @@ use crate::database::{errors::Result, tables::tables::*};
 */
 
 // central shared struct
-pub(crate) struct KVDB {
+pub(crate) struct StorageEngine {
     pub pager: Arc<DiskPager>,
     pub t_def: TDefTable,
     pub t_meta: MetaTable,
 }
 
 // pass through functions
-impl Transaction for KVDB {
-    fn begin(&self, db: &Arc<KVDB>, kind: TXKind) -> TX {
+impl Transaction for StorageEngine {
+    fn begin(&self, db: &Arc<StorageEngine>, kind: TXKind) -> TX {
         self.pager.begin(db, kind)
     }
 
@@ -35,9 +35,9 @@ impl Transaction for KVDB {
     }
 }
 
-impl KVDB {
+impl StorageEngine {
     pub fn new(path: &'static str) -> Self {
-        KVDB {
+        StorageEngine {
             t_def: TDefTable::new(),
             t_meta: MetaTable::new(),
             // t_buf: Mutex::new(TableBuffer::new()),

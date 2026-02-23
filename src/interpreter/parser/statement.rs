@@ -38,6 +38,10 @@ impl SelectStatement {
         }
         Ok(())
     }
+
+    pub fn get_limit(&self) -> Option<u32> {
+        self.limit.as_ref().map(|limit| limit.0 as u32)
+    }
 }
 
 pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
@@ -97,7 +101,11 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
     if let Some(t) = parser.next()
         && (*t != Token::Seperator(Seperator::Semicolon))
     {
-        return Err(ParseError::ParseError("Select statement wasnt closed properly").into());
+        return Err(ParseError::InvalidToken {
+            expected: "expected semicolon".to_string(),
+            got: t.to_string(),
+        }
+        .into());
     }
 
     statement.validate()?;
@@ -184,7 +192,11 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
     if let Some(t) = parser.next()
         && (*t != Token::Seperator(Seperator::Semicolon))
     {
-        return Err(ParseError::ParseError("Insert statement wasnt closed properly").into());
+        return Err(ParseError::InvalidToken {
+            expected: "expected semicolon".to_string(),
+            got: t.to_string(),
+        }
+        .into());
     }
 
     let statement = InsertStatement {

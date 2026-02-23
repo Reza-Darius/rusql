@@ -317,11 +317,15 @@ impl Table {
         None
     }
 
-    /// returns the first index that contains the column
-    pub fn get_index(&self, col_name: &str) -> Option<&Index> {
-        let col_idx = self.col_exists(col_name)?;
+    /// returns the index that contains the columns
+    pub fn get_index(&self, col_name: &[&str]) -> Option<&Index> {
+        let col_indices: Vec<_> = col_name
+            .iter()
+            .filter_map(|col| self.col_exists(*col))
+            .collect();
         for index in self.indices.iter() {
-            if index.columns.contains(&col_idx) {
+            // do all columns in the index match the porivded col name indices
+            if index.columns.iter().all(|i| col_indices.contains(i)) {
                 return Some(index);
             }
         }
@@ -466,7 +470,7 @@ mod secondary_index_tests {
         helper::cleanup_file,
         pager::transaction::Transaction,
         tables::{Record, TypeCol},
-        transactions::{kvdb::KVDB, tx::TXKind},
+        transactions::{kvdb::StorageEngine, tx::TXKind},
     };
     use std::sync::Arc;
     use test_log::test;
@@ -475,7 +479,7 @@ mod secondary_index_tests {
     fn add_single_secondary_index() {
         let path = "test-files/add_single_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -507,7 +511,7 @@ mod secondary_index_tests {
     fn add_multiple_secondary_indices() {
         let path = "test-files/add_multiple_indices.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -547,7 +551,7 @@ mod secondary_index_tests {
     fn add_col_to_nonexistant_idx() {
         let path = "test-files/add_index_nonexistent_col.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -572,7 +576,7 @@ mod secondary_index_tests {
     fn add_duplicate_index_fails() {
         let path = "test-files/add_duplicate_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -600,7 +604,7 @@ mod secondary_index_tests {
     fn add_empty_index_name_fails() {
         let path = "test-files/add_empty_index_name.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -622,7 +626,7 @@ mod secondary_index_tests {
     fn remove_secondary_index() {
         let path = "test-files/remove_secondary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -652,7 +656,7 @@ mod secondary_index_tests {
     fn remove_nonexistent_index_fails() {
         let path = "test-files/remove_nonexistent_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -676,7 +680,7 @@ mod secondary_index_tests {
     fn remove_primary_index_fails() {
         let path = "test-files/remove_primary_index.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -699,7 +703,7 @@ mod secondary_index_tests {
     fn remove_empty_index_name_fails() {
         let path = "test-files/remove_empty_index_name.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -721,7 +725,7 @@ mod secondary_index_tests {
     fn record_encoding_with_secondary_index() {
         let path = "test-files/record_encoding_secondary.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -763,7 +767,7 @@ mod secondary_index_tests {
     fn record_encoding_with_multiple_secondary_indices() {
         let path = "test-files/record_encoding_multi_secondary.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -809,7 +813,7 @@ mod secondary_index_tests {
     fn add_and_remove_multiple_indices_sequentially() {
         let path = "test-files/add_remove_sequential.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -874,7 +878,7 @@ mod secondary_index_tests {
     fn index_prefix_values_correct() {
         let path = "test-files/index_prefix_values.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -917,7 +921,7 @@ mod secondary_index_tests {
     fn table_serialization_with_indices() {
         let path = "test-files/table_serialization_indices.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -955,7 +959,7 @@ mod secondary_index_tests {
     fn index_columns_match_table_structure() {
         let path = "test-files/index_columns_match.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()

@@ -2,7 +2,7 @@ use crate::{
     database::errors::*,
     interpreter::{parser::types::ValueObject, tokens::Operator},
 };
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 pub trait Expression: std::fmt::Debug {
     fn evaluate(&self) -> Result<ValueObject>;
@@ -10,18 +10,18 @@ pub trait Expression: std::fmt::Debug {
 
 impl From<&str> for Box<dyn Expression> {
     fn from(value: &str) -> Self {
-        Box::new(StrLiteral(value.to_owned()))
+        Box::new(StrLiteral(value.into()))
     }
 }
 
 impl From<i64> for Box<dyn Expression> {
     fn from(value: i64) -> Self {
-        Box::new(IntLiteral(format!("{value}")))
+        Box::new(IntLiteral(value.to_string().into()))
     }
 }
 
 #[derive(Debug)]
-pub struct IntLiteral(pub String);
+pub struct IntLiteral(pub Rc<str>);
 
 impl Expression for IntLiteral {
     fn evaluate(&self) -> Result<ValueObject> {
@@ -33,7 +33,7 @@ impl Expression for IntLiteral {
 }
 
 #[derive(Debug)]
-pub struct StrLiteral(pub String);
+pub struct StrLiteral(pub Rc<str>);
 
 impl Expression for StrLiteral {
     fn evaluate(&self) -> Result<ValueObject> {
@@ -78,7 +78,7 @@ impl Expression for InfixExpression {
 
 fn eval_with_str(a: &impl Display, b: &impl Display, op: Operator) -> Result<ValueObject> {
     match op {
-        Operator::Plus => Ok(ValueObject::Str(format!("{a}{b}"))),
+        Operator::Plus => Ok(ValueObject::Str(format!("{a}{b}").into())),
         _ => Err(ParseError::ParseError("invalid operator for str infix expression").into()),
     }
 }
@@ -143,7 +143,7 @@ mod eval_test {
 
         assert_eq!(
             expr.evaluate().unwrap(),
-            ValueObject::Str("HelloWorld".to_string())
+            ValueObject::Str("HelloWorld".into())
         );
 
         expr = InfixExpression {
@@ -152,10 +152,7 @@ mod eval_test {
             rhs: Some("World".into()),
         };
 
-        assert_eq!(
-            expr.evaluate().unwrap(),
-            ValueObject::Str("10World".to_string())
-        );
+        assert_eq!(expr.evaluate().unwrap(), ValueObject::Str("10World".into()));
 
         let mut expr = PrefixExpression {
             operator: Operator::Minus,

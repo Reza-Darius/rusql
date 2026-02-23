@@ -545,7 +545,7 @@ mod test {
     use crate::database::errors::Result;
     use crate::database::pager::transaction::Transaction;
     use crate::database::tables::Record;
-    use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
+    use crate::database::transactions::{kvdb::StorageEngine, tx::TXKind};
 
     use super::super::tables::TableBuilder;
     use super::*;
@@ -556,7 +556,7 @@ mod test {
     fn key_cmp1() -> Result<()> {
         let path = "test-files/key_cmp1.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()

@@ -30,8 +30,8 @@ where
         if let Some(existing) = self.map.get_mut(&key) {
             existing.val = val;
 
-            self.ll.disconnect_node(&existing);
-            let ptr = self.get_ptr(key).expect("key exists");
+            let ptr = existing.as_mut() as *mut _;
+            self.ll.disconnect_node(ptr);
             self.ll.push_tail(ptr);
             return;
         }
@@ -60,22 +60,20 @@ where
 
     pub fn get(&mut self, key: K) -> Option<&V> {
         let ptr = self.get_ptr(key)?;
-        let n = self.map.get(&key)?;
 
-        self.ll.disconnect_node(&n);
+        self.ll.disconnect_node(ptr);
         self.ll.push_tail(ptr);
 
-        Some(&n.val)
+        self.map.get(&key).map(|n| &n.val)
     }
 
     pub fn remove(&mut self, key: K) -> Option<V> {
         let ptr = self.get_ptr(key)?;
-        let n = self.map.remove(&key)?;
 
-        self.ll.disconnect_node(&n);
+        self.ll.disconnect_node(ptr);
         self.len -= 1;
 
-        Some(n.val)
+        self.map.remove(&key).map(|n| n.val)
     }
 
     pub fn iter(&self) -> LRUIter<'_, K, V> {
@@ -201,15 +199,15 @@ where
         }
     }
 
-    fn disconnect_node(&mut self, node: &Node<K, V>) {
+    fn disconnect_node(&mut self, node: *mut Node<K, V>) {
         unsafe {
-            let next = node.next;
-            let prev = node.prev;
+            let next = (*node).next;
+            let prev = (*node).prev;
 
             // node is already disconnected
             if next.is_null() && prev.is_null() {
-                // its the only node
-                if self.head as *const _ == node as *const _ {
+                // its the only node in the list
+                if self.head == node && self.tail == node {
                     self.head = null_mut();
                     self.tail = null_mut();
                     self.len -= 1;

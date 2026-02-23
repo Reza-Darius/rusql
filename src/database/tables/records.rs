@@ -375,7 +375,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::database::pager::transaction::Transaction;
-    use crate::database::transactions::{kvdb::KVDB, tx::TXKind};
+    use crate::database::transactions::{kvdb::StorageEngine, tx::TXKind};
     use std::sync::Arc;
 
     use super::super::tables::TableBuilder;
@@ -387,7 +387,7 @@ mod test {
     fn record1() -> Result<()> {
         let path = "test-files/record1.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let table = TableBuilder::new()
@@ -446,7 +446,7 @@ mod test {
     fn records_secondary_indicies1() -> Result<()> {
         let path = "test-files/records_secondary_indicies1.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -485,7 +485,7 @@ mod test {
     fn records_secondary_indicies2() -> Result<()> {
         let path = "test-files/records_secondary_indicies2.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -526,7 +526,7 @@ mod test {
     fn query_secondary_indicies1() -> Result<()> {
         let path = "test-files/query_secondary_indicies1.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()
@@ -566,7 +566,7 @@ mod test {
     fn query_multiple_secondary_indicies1() -> Result<()> {
         let path = "test-files/query_multiple_secondary_indicies1.rdb";
         cleanup_file(path);
-        let db = Arc::new(KVDB::new(path));
+        let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
 
         let mut table = TableBuilder::new()

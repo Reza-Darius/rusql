@@ -15,9 +15,9 @@ use crate::database::pager::diskpager::PageOrigin;
 use crate::database::pager::freelist::GC;
 use crate::database::pager::mmap::mmap_extend;
 use crate::database::transactions::keyrange::{KeyRange, Touched};
-use crate::database::transactions::kvdb::KVDB;
+use crate::database::transactions::kvdb::StorageEngine;
 use crate::database::transactions::tx::{TX, TXKind};
-use crate::database::transactions::txdb::TXDB;
+use crate::database::transactions::txdb::TXStore;
 use crate::database::types::PAGE_SIZE;
 use crate::debug_if_env;
 
@@ -27,17 +27,17 @@ pub struct TXHistory {
 }
 
 pub trait Transaction {
-    fn begin(&self, db: &Arc<KVDB>, kind: TXKind) -> TX;
+    fn begin(&self, db: &Arc<StorageEngine>, kind: TXKind) -> TX;
     fn abort(&self, tx: TX) -> Result<CommitStatus>;
     fn commit(&self, tx: TX) -> Result<CommitStatus>;
 }
 
 impl Transaction for DiskPager {
-    fn begin(&self, db: &Arc<KVDB>, kind: TXKind) -> TX {
+    fn begin(&self, db: &Arc<StorageEngine>, kind: TXKind) -> TX {
         let _guard = self.lock.lock();
 
         let version = self.version.load(Ordering::Acquire);
-        let txdb = Arc::new(TXDB::new(db, kind));
+        let txdb = Arc::new(TXStore::new(db, kind));
         let weak = Arc::downgrade(&txdb);
         let root_ptr = *self.tree.read();
 

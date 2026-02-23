@@ -48,7 +48,7 @@ impl DiskBuffer {
     pub fn get_clean(&self, ptr: Pointer) -> Option<Node> {
         self.hmap
             .get(&ptr)
-            .and_then(|n| if !n.dirty { None } else { Some(n.node.clone()) })
+            .and_then(|n| if n.dirty { None } else { Some(n.node.clone()) })
     }
 
     /// retrieves all dirty pages in the buffer

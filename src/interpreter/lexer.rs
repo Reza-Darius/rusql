@@ -134,6 +134,7 @@ fn lex_char(iter: &mut Peekable<Chars<'_>>) -> Option<Token> {
             DIVIDE => Some(Token::Operator(Operator::Divide)),
             MODULO => Some(Token::Operator(Operator::Modulo)),
             LT => {
+                iter.next();
                 if let Some(c) = iter.peek()
                     && let ASSIGN = *c
                 {
@@ -196,10 +197,10 @@ fn lex_keyword(string: &str) -> Option<Token> {
 
 fn lex_value(string: &str) -> Token {
     if string.starts_with('"') && string.ends_with('"') {
-        return Token::Value(Value::Str(string.trim_matches('"').to_string()));
+        return Token::Value(Value::Str(string.trim_matches('"').into()));
     }
     if let Ok(int) = string.parse::<i64>() {
-        Token::Value(Value::Int(string.to_owned()))
+        Token::Value(Value::Int(string.into()))
     } else {
         Token::Ident(string.to_string())
     }
@@ -246,7 +247,7 @@ mod lexer_test {
         assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::Ge));
         assert_eq!(
             *tokens.next().unwrap(),
-            Token::Value(Value::Int(5i64.to_string()))
+            Token::Value(Value::Int(5i64.to_string().into()))
         );
         assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::RParen));
         assert_eq!(
@@ -275,18 +276,18 @@ mod lexer_test {
         assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::LParen));
         assert_eq!(
             *tokens.next().unwrap(),
-            Token::Value(Value::Int(2.to_string()))
+            Token::Value(Value::Int(2.to_string().into()))
         );
         assert_eq!(*tokens.next().unwrap(), Token::Operator(Operator::Multi));
         assert_eq!(
             *tokens.next().unwrap(),
-            Token::Value(Value::Int(2.to_string()))
+            Token::Value(Value::Int(2.to_string().into()))
         );
         assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::RParen));
         assert_eq!(*tokens.next().unwrap(), Token::Seperator(Seperator::Comma));
         assert_eq!(
             *tokens.next().unwrap(),
-            Token::Value(Value::Str("Hello".to_string()))
+            Token::Value(Value::Str("Hello".to_string().into()))
         );
         assert_eq!(
             *tokens.next().unwrap(),

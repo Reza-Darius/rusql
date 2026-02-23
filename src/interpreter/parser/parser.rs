@@ -176,6 +176,7 @@ pub fn parse_columns(parser: &mut Parser) -> Result<StatementColumns> {
 
     while let Some(t) = parser.current() {
         debug!("parsing columns {t:?}");
+
         match t {
             Token::Ident(i) => {
                 columns.push(i.clone());
@@ -265,9 +266,7 @@ pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
                 parser.next();
             }
 
-            Token::Eof => break,
-            Token::Seperator(Seperator::Semicolon) => break,
-            Token::Keyword(_) => break,
+            Token::Eof | Token::Seperator(Seperator::Semicolon) | Token::Keyword(_) => break,
 
             t => {
                 return Err(ParseError::InvalidToken {
@@ -408,6 +407,6 @@ mod parser_test {
             .evaluate()
             .unwrap();
 
-        assert_eq!(expr, ValueObject::Str("helloworld".to_string()));
+        assert_eq!(expr, ValueObject::Str("helloworld".into()));
     }
 }
