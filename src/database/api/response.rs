@@ -1,4 +1,4 @@
-use crate::database::tables::Record;
+use crate::{database::tables::Record, interpreter::Statement};
 
 #[derive(Debug, Default)]
 pub struct DBResponse {
@@ -16,6 +16,9 @@ impl QueryResponse {
 }
 
 impl DBResponse {
+    pub fn new(stmt: &Statement, records: Option<&[Record]>) -> Self {
+        todo!()
+    }
     fn rows(self) -> String {
         todo!()
     }

@@ -3,10 +3,11 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::database::api::response::DBResponse;
+use crate::database::btree::ScanMode;
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
-use crate::database::tables::Record;
-use crate::database::tables::tables::{Index, Table};
+use crate::database::tables::tables::Table;
+use crate::database::tables::{Query, Record};
 use crate::database::transactions::kvdb::*;
 use crate::database::transactions::tx::*;
 use crate::interpreter::*;
@@ -53,45 +54,68 @@ fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
         ExecError::ExecutionError("table not found")
     })?;
 
-    // no WHERE clause with wildcard
-    if stmt.columns == StatementColumns::Wildcard && stmt.index.is_none() {
-        // TODO: transform into response
-        select_full_scan(tx, &table, stmt.get_limit())?;
+    let res = if stmt.index.is_some() {
+        select_where(tx, &table, &stmt)?
+    } else {
+        select_columns(tx, &table, &stmt)?
     };
-
-    // if indices.is_empty() {
-    //     // no index found, fall back to full table scan
-    //     todo!()
-    // } else {
-    //     // query by index
-    //     // use where clause
-    //     todo!()
-    // }
 
     Ok(DBResponse::default())
 }
 
+fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<Record>> {
+    let indices = stmt
+        .index
+        .as_ref()
+        .expect("this function only gets called with where clauses");
+    // check columns and data types
+    let mut search_indices: Vec<_> = vec![];
+    for index in indices.iter() {
+        if !table.valid_col(&index.column, &index.expr) {
+            error!(?index, "invaild column for index");
+            return Err(ExecError::ExecutionError(
+                "invalid index, check column name and provided data type",
+            )
+            .into());
+        }
+        // do we have an index
+        if let Some(search_index) = table.get_index(std::slice::from_ref(&index.column)) {
+            search_indices.push(search_index)
+        };
+    }
+    // if search_indices.is_empty() {} else {
+    //     let key = ScanMode::open(key, cmp)
+    // }
+    todo!()
+}
+
+fn record_matches_index(record: &Record, index: &StatementIndex, col_indices: &[usize]) -> bool {
+    true
+}
+
 fn select_columns(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<Record>> {
-    // validate columns and get indices
-    let mut index = None;
-    if let StatementColumns::Cols(ref columns) = stmt.columns {
-        for col in columns.iter() {
-            if let Some(_) = table.col_exists(col) {
-                let str_slice: Vec<&str> = columns.iter().map(|str| str.as_str()).collect();
-                index = table.get_index(&str_slice[..]);
+    match &stmt.columns {
+        StatementColumns::Wildcard => return select_full_scan(tx, table, stmt.get_limit()),
+        StatementColumns::Cols(columns) => {
+            // do the provided columns exist?
+            for col in columns {
+                if table.col_exists(col).is_none() {
+                    error!(col, "couldnt find column in table schema");
+                    return Err(
+                        ExecError::ExecutionError("couldnt find column in table schema").into(),
+                    );
+                }
+            }
+            // do we have a matching index?
+            if let Some(index) = table.get_index(columns.as_slice()) {
+                let key = Query::by_tid_prefix(table, index.prefix);
+                Ok(ScanMode::prefix(key, &tx.tree)?.collect_records())
+            // if not, default to full table scan
             } else {
-                error!(col, "couldnt find column in table schema");
-                return Err(
-                    ExecError::ExecutionError("couldnt find column in table schema").into(),
-                );
+                select_full_scan(tx, table, stmt.get_limit())
             }
         }
     }
-
-    if index.is_none() {
-        return select_full_scan(tx, table, stmt.get_limit());
-    }
-    todo!()
 }
 
 fn select_full_scan(tx: &mut TX, table: &Table, limit: Option<u32>) -> Result<Vec<Record>> {
@@ -108,10 +132,6 @@ fn select_full_scan(tx: &mut TX, table: &Table, limit: Option<u32>) -> Result<Ve
     } else {
         Ok(iter.collect_records())
     }
-}
-
-fn validate_select(stmt: &SelectStatement) -> Result<()> {
-    Ok(())
 }
 
 fn exec_insert(db: &Database, stmt: SelectStatement) -> Result<()> {

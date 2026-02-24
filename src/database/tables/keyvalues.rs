@@ -8,6 +8,7 @@ use crate::database::codec::*;
 use crate::database::tables::tables::TypeCol;
 use crate::database::types::DataCell;
 use crate::debug_if_env;
+use crate::interpreter::ValueObject;
 
 // encoded and parsed key for the pager, should only be created from encoding a record
 //
@@ -230,7 +231,25 @@ impl<'a> KeyRef<'a> {
 
 pub enum DataCellRef<'a> {
     Int(i64),
-    Str(&'a str), // or &'a [u8] if you want raw bytes
+    Str(&'a str),
+}
+
+impl<'a> From<&'a DataCell> for DataCellRef<'a> {
+    fn from(value: &'a DataCell) -> Self {
+        match value {
+            DataCell::Str(s) => DataCellRef::Str(s),
+            DataCell::Int(i) => DataCellRef::Int(*i),
+        }
+    }
+}
+
+impl<'a> From<&'a ValueObject> for DataCellRef<'a> {
+    fn from(value: &'a ValueObject) -> Self {
+        match value {
+            ValueObject::Str(s) => DataCellRef::Str(s),
+            ValueObject::Int(i) => DataCellRef::Int(*i),
+        }
+    }
 }
 
 pub(crate) struct KeyIterRef<'a> {

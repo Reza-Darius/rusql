@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Deref};
 
 use crate::database::{
     errors::{Result, TableError},
-    tables::Value,
+    tables::{Value, keyvalues::DataCellRef},
     transactions::tx::TX,
     types::{BTREE_MAX_VAL_SIZE, DataCell},
 };
@@ -287,21 +287,19 @@ impl Table {
     }
 
     /// checks if col by name exists and matches data type
-    pub fn valid_col(&self, title: &str, data: &DataCell) -> bool {
+    pub fn valid_col<'a, Data: Into<DataCellRef<'a>>>(&self, title: &str, data: Data) -> bool {
         if title.is_empty() {
             return false;
         }
-        let cell_type = match data {
-            DataCell::Str(_) => TypeCol::BYTES,
-            DataCell::Int(_) => TypeCol::INTEGER,
+        let cell_type = match data.into() {
+            DataCellRef::Int(_) => TypeCol::INTEGER,
+            DataCellRef::Str(_) => TypeCol::BYTES,
         };
 
-        for col in self.cols.iter() {
-            if col.title == title && col.data_type == cell_type {
-                return true;
-            }
-        }
-        false
+        return self
+            .cols
+            .iter()
+            .any(|col| col.title == title && col.data_type == cell_type);
     }
 
     /// returns idx in column array matching title
@@ -318,13 +316,13 @@ impl Table {
     }
 
     /// returns the index that contains the columns
-    pub fn get_index(&self, col_name: &[&str]) -> Option<&Index> {
-        let col_indices: Vec<_> = col_name
+    pub fn get_index<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&Index> {
+        let col_indices: Vec<_> = col_names
             .iter()
-            .filter_map(|col| self.col_exists(*col))
+            .filter_map(|col| self.col_exists(col.as_ref()))
             .collect();
         for index in self.indices.iter() {
-            // do all columns in the index match the porivded col name indices
+            // do all columns in the index match the provided col name indices
             if index.columns.iter().all(|i| col_indices.contains(i)) {
                 return Some(index);
             }
