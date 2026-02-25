@@ -143,10 +143,10 @@ impl Record {
     }
 
     pub fn from_kv(kv: (Key, Value)) -> Record {
-        let mut v = Vec::new();
-        v.extend(kv.0.into_iter());
-        v.extend(kv.1.into_iter());
-        Record { data: v }
+        let mut data = Vec::new();
+        data.extend(kv.0.into_iter());
+        data.extend(kv.1.into_iter());
+        Record { data }
     }
 }
 
