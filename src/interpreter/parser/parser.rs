@@ -169,6 +169,7 @@ pub fn parse_columns(parser: &mut Parser) -> Result<StatementColumns> {
         .ok_or_else(|| ParseError::ParseError("expected column token"))?
         == Token::Operator(Operator::Multi)
     {
+        parser.next();
         return Ok(StatementColumns::Wildcard);
     };
 

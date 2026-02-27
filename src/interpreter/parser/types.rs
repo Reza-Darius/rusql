@@ -128,7 +128,7 @@ pub enum Precedence {
     Prefix,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ValueObject {
     Str(Rc<str>),
     Int(i64),

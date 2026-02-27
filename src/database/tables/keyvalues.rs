@@ -69,7 +69,6 @@ impl Key {
         const TID: u32 = 1;
         const PREFIX: u16 = 0;
 
-        // TID 1 and PREFIX 0
         buf.extend_from_slice(&TID.to_le_bytes());
         buf.extend_from_slice(&PREFIX.to_le_bytes());
         buf.extend_from_slice(&data.encode());
@@ -196,6 +195,10 @@ impl IntoIterator for Key {
 pub(crate) struct KeyRef<'a>(&'a [u8]);
 
 impl<'a> KeyRef<'a> {
+    pub fn from_key(key: &'a Key) -> Self {
+        KeyRef(key.as_slice())
+    }
+
     pub fn from_slice(slice: &'a [u8]) -> Self {
         KeyRef(slice)
     }
@@ -229,6 +232,7 @@ impl<'a> KeyRef<'a> {
     }
 }
 
+#[derive(PartialEq, PartialOrd)]
 pub enum DataCellRef<'a> {
     Int(i64),
     Str(&'a str),
@@ -373,6 +377,14 @@ impl IntoIterator for Value {
             data: self,
             count: 0,
         }
+    }
+}
+
+pub struct ValueRef<'a>(&'a [u8]);
+
+impl<'a> ValueRef<'a> {
+    fn from_val(value: &'a Value) -> Self {
+        ValueRef(value.as_slice())
     }
 }
 

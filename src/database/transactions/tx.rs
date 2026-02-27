@@ -892,7 +892,7 @@ mod tables {
 
         let open = ScanMode::open(
             Query::by_col(&table1).add("name", "Alice").encode()?,
-            Compare::GE,
+            Compare::Ge,
         )?;
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -901,7 +901,7 @@ mod tables {
         assert_eq!(res[1].to_string(), "Bob 15");
         assert_eq!(res[2].to_string(), "Charlie 25");
 
-        let open = ScanMode::open(Query::by_col(&table2).add("id", 20).encode()?, Compare::GE)?;
+        let open = ScanMode::open(Query::by_col(&table2).add("id", 20).encode()?, Compare::Ge)?;
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
         assert_eq!(res.len(), 2);
@@ -1028,7 +1028,7 @@ mod scan {
         let lo_key = Query::by_col(&table).add("id", 5i64).encode()?;
         let hi_key = Query::by_col(&table).add("id", 15i64).encode()?;
 
-        let range = ScanMode::range((lo_key, Compare::GE), (hi_key, Compare::GT))?;
+        let range = ScanMode::range((lo_key, Compare::Ge), (hi_key, Compare::Gt))?;
 
         let res: Vec<_> = tx.tree_scan(range)?.collect_records();
 
@@ -1092,7 +1092,7 @@ mod scan {
         // Scan table1
         let open = ScanMode::open(
             Query::by_col(&table1).add("key", "key_a_1").encode()?,
-            Compare::GE,
+            Compare::Ge,
         )?;
         let res1: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -1103,7 +1103,7 @@ mod scan {
         // Scan table2
         let open = ScanMode::open(
             Query::by_col(&table2).add("key", "key_b_1").encode()?,
-            Compare::GE,
+            Compare::Ge,
         )?;
         let res2: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -1146,7 +1146,7 @@ mod scan {
         // Scan backwards from score 50
         let open = ScanMode::open(
             Query::by_col(&table).add("score", 50i64).encode()?,
-            Compare::LT,
+            Compare::Lt,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1189,7 +1189,7 @@ mod scan {
         // Scan for values greater than max
         let open = ScanMode::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
-            Compare::GT,
+            Compare::Gt,
         )?;
 
         let result = tx.tree_scan(open);
@@ -1225,7 +1225,7 @@ mod scan {
 
         let open = ScanMode::open(
             Query::by_col(&table).add("code", "CODE_001").encode()?,
-            Compare::EQ,
+            Compare::Eq,
         );
         // EQ is not allowed in open scans, should error
         assert!(open.is_err());
@@ -1263,7 +1263,7 @@ mod scan {
         // Scan from 35 backwards (LE)
         let open = ScanMode::open(
             Query::by_col(&table).add("value", 35i64).encode()?,
-            Compare::LE,
+            Compare::Le,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1306,7 +1306,7 @@ mod scan {
         // Scan from id 100 onwards
         let open = ScanMode::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
-            Compare::GT,
+            Compare::Gt,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1349,7 +1349,7 @@ mod scan {
         // Scan from "bob" onwards
         let open = ScanMode::open(
             Query::by_col(&table).add("name", "bob").encode()?,
-            Compare::GE,
+            Compare::Ge,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1395,7 +1395,7 @@ mod scan {
         }
 
         // Scan from beginning
-        let open = ScanMode::open(Query::by_col(&table).add("id", 1i64).encode()?, Compare::GE)?;
+        let open = ScanMode::open(Query::by_col(&table).add("id", 1i64).encode()?, Compare::Ge)?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -2780,7 +2780,7 @@ mod secondary_index_ops {
             .add("email", "alice@example.com")
             .encode()?;
 
-        let mut scan = ScanMode::open(email_query, Compare::GE)
+        let mut scan = ScanMode::open(email_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -2841,7 +2841,7 @@ mod secondary_index_ops {
         let eng_query = Query::by_col(&table)
             .add("department", "Engineering")
             .encode()?;
-        let mut scan = ScanMode::open(eng_query, Compare::GE)
+        let mut scan = ScanMode::open(eng_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -2892,7 +2892,7 @@ mod secondary_index_ops {
 
         // Query by each secondary index
         let name_query = Query::by_col(&table).add("name", "Laptop").encode()?;
-        let mut scan = ScanMode::open(name_query, Compare::GE)
+        let mut scan = ScanMode::open(name_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -2901,14 +2901,14 @@ mod secondary_index_ops {
         let category_query = Query::by_col(&table)
             .add("category", "Electronics")
             .encode()?;
-        let mut scan = ScanMode::open(category_query, Compare::GE)
+        let mut scan = ScanMode::open(category_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
         assert!(scan.next().is_some()); // Found by category
 
         let price_query = Query::by_col(&table).add("price", 1500i64).encode()?;
-        let mut scan = ScanMode::open(price_query, Compare::GE)
+        let mut scan = ScanMode::open(price_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -2949,7 +2949,7 @@ mod secondary_index_ops {
 
         // Verify it exists via secondary index
         let status_query = Query::by_col(&table).add("status", "active").encode()?;
-        let mut scan = ScanMode::open(status_query.clone(), Compare::GE)
+        let mut scan = ScanMode::open(status_query.clone(), Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -2963,7 +2963,7 @@ mod secondary_index_ops {
         assert!(tx.tree_get(pk_query).is_none());
 
         // Verify secondary index entry is also gone (should be handled by record deletion)
-        let scan = ScanMode::open(status_query, Compare::GE)
+        let scan = ScanMode::open(status_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree);
 
@@ -3063,7 +3063,7 @@ mod secondary_index_ops {
 
         // Read via username secondary index
         let username_query = Query::by_col(&table).add("username", "alice").encode()?;
-        let mut scan = ScanMode::open(username_query, Compare::GE)
+        let mut scan = ScanMode::open(username_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -3076,7 +3076,7 @@ mod secondary_index_ops {
         let email_query = Query::by_col(&table)
             .add("email", "bob@example.com")
             .encode()?;
-        let mut scan = ScanMode::open(email_query, Compare::GE)
+        let mut scan = ScanMode::open(email_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -3126,7 +3126,7 @@ mod secondary_index_ops {
 
         // Verify initial state
         let status_query = Query::by_col(&table).add("status", "pending").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::GE)
+        let mut scan = ScanMode::open(status_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -3146,7 +3146,7 @@ mod secondary_index_ops {
 
         // Verify new secondary index entry exists
         let new_status_query = Query::by_col(&table).add("status", "completed").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::GE)
+        let mut scan = ScanMode::open(new_status_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx.tree)
             .unwrap();
@@ -3189,7 +3189,7 @@ mod secondary_index_ops {
 
         // Scan from score 100 onwards
         let start_key = Query::by_col(&table).add("score", 100i64).encode()?;
-        let scan_mode = ScanMode::open(start_key, Compare::GE)?;
+        let scan_mode = ScanMode::open(start_key, Compare::Ge)?;
         let results: Vec<_> = tx.tree_scan(scan_mode)?.collect_records();
 
         // Should get records with scores from 100 to 200 (11 records)
@@ -3314,7 +3314,7 @@ mod secondary_index_ops {
         // Transaction 2: Read via secondary index
         let tx2 = db.begin(&db, TXKind::Read);
         let status_query = Query::by_col(&table).add("status", "draft").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::GE)
+        let mut scan = ScanMode::open(status_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx2.tree)
             .unwrap();
@@ -3335,7 +3335,7 @@ mod secondary_index_ops {
         // Transaction 4: Verify update via secondary index
         let tx4 = db.begin(&db, TXKind::Read);
         let new_status_query = Query::by_col(&table).add("status", "published").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::GE)
+        let mut scan = ScanMode::open(new_status_query, Compare::Ge)
             .unwrap()
             .into_iter(&tx4.tree)
             .unwrap();

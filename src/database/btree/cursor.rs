@@ -12,6 +12,7 @@ use crate::{
         types::Node,
     },
     debug_if_env,
+    interpreter::Operator,
 };
 
 #[derive(Debug, Clone)]
@@ -93,7 +94,7 @@ impl ScanMode {
 
     /// single scan, basically tree_get() over the cursor API
     pub fn single<P: Pager>(key: Key, tree: &BTree<P>) -> Option<(Key, Value)> {
-        let cursor = seek(tree, &key, SeekConfig::Pred(Compare::EQ))?;
+        let cursor = seek(tree, &key, SeekConfig::Pred(Compare::Eq))?;
         Some(cursor.deref())
     }
 
@@ -133,8 +134,8 @@ impl ScanMode {
         match self {
             ScanMode::Open(key, pred) => {
                 let dir = match pred {
-                    Compare::LT | Compare::LE => CursorDir::Prev,
-                    Compare::GT | Compare::GE | Compare::EQ => CursorDir::Next,
+                    Compare::Lt | Compare::Le => CursorDir::Prev,
+                    Compare::Gt | Compare::Ge | Compare::Eq => CursorDir::Next,
                 };
                 Some(ScanIter {
                     cursor: seek(tree, &key, SeekConfig::Pred(pred))?,
@@ -160,7 +161,7 @@ impl ScanMode {
 
 pub(super) fn scan_single<P: Pager>(tree: &BTree<P>, key: &Key) -> Option<Vec<(Key, Value)>> {
     let mut res: Vec<(Key, Value)> = vec![];
-    let cursor = seek(tree, &key, SeekConfig::Pred(Compare::EQ))?;
+    let cursor = seek(tree, &key, SeekConfig::Pred(Compare::Eq))?;
     res.push(cursor.deref());
     Some(res)
 }
@@ -367,7 +368,7 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
 
         ptr = match node.unwrap_tn().get_type() {
             NodeType::Node => {
-                let idx = node_lookup(node.unwrap_tn(), &key, &SeekConfig::Pred(Compare::LE))?; // navigating nodes
+                let idx = node_lookup(node.unwrap_tn(), &key, &SeekConfig::Pred(Compare::Le))?; // navigating nodes
                 let ptr = node.unwrap_tn().get_ptr(idx);
 
                 cursor.path.push(node);
@@ -403,11 +404,11 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
 
 fn key_cmp(k1: &Key, k2: &Key, pred: Compare) -> bool {
     match pred {
-        Compare::LT => k1 < k2,
-        Compare::LE => k1 <= k2,
-        Compare::GT => k1 > k2,
-        Compare::GE => k1 >= k2,
-        Compare::EQ => k1 == k2,
+        Compare::Lt => k1 < k2,
+        Compare::Le => k1 <= k2,
+        Compare::Gt => k1 > k2,
+        Compare::Ge => k1 >= k2,
+        Compare::Eq => k1 == k2,
     }
 }
 
@@ -417,11 +418,11 @@ fn node_lookup(node: &TreeNode, key: &Key, flag: &SeekConfig) -> Option<u16> {
     }
     match flag {
         SeekConfig::Pred(p) => match p {
-            Compare::LT => cmp_lt(node, key),
-            Compare::LE => cmp_le(node, key),
-            Compare::GT => cmp_gt(node, key),
-            Compare::GE => cmp_ge(node, key),
-            Compare::EQ => cmp_eq(node, key),
+            Compare::Lt => cmp_lt(node, key),
+            Compare::Le => cmp_le(node, key),
+            Compare::Gt => cmp_gt(node, key),
+            Compare::Ge => cmp_ge(node, key),
+            Compare::Eq => cmp_eq(node, key),
         },
         SeekConfig::Prefix => {
             let idx = cmp_ge(node, key)?;
@@ -444,11 +445,24 @@ enum SeekConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum Compare {
-    LT, // <
-    LE, // <=
-    GT, // >
-    GE, // >=
-    EQ, // ==
+    Lt, // <
+    Le, // <=
+    Gt, // >
+    Ge, // >=
+    Eq, // ==
+}
+
+impl From<Operator> for Compare {
+    fn from(value: Operator) -> Self {
+        match value {
+            Operator::Equal => Compare::Eq,
+            Operator::Lt => Compare::Lt,
+            Operator::Le => Compare::Le,
+            Operator::Gt => Compare::Gt,
+            Operator::Ge => Compare::Ge,
+            _ => unreachable!("invalid compare operator for conversion"),
+        }
+    }
 }
 
 fn cmp_lt(node: &TreeNode, key: &Key) -> Option<u16> {
@@ -674,7 +688,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::GT);
+        let q = ScanMode::Open(key, Compare::Gt);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -701,7 +715,7 @@ mod test {
 
         let key = 1i64.into();
         let btree = tree.pager.tree.borrow();
-        let mut cursor = seek(&btree, &key, SeekConfig::Pred(Compare::EQ)).unwrap();
+        let mut cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Eq)).unwrap();
 
         // Navigate through all elements using next()
         for i in 1i64..=10i64 {
@@ -727,7 +741,7 @@ mod test {
 
         let key = 10i64.into();
         let btree = tree.pager.tree.borrow();
-        let mut cursor = seek(&btree, &key, SeekConfig::Pred(Compare::EQ)).unwrap();
+        let mut cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Eq)).unwrap();
 
         // Navigate backwards using prev()
         for i in (1i64..=10i64).rev() {
@@ -797,7 +811,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::GT);
+        let q = ScanMode::Open(key, Compare::Gt);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -821,7 +835,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::GE);
+        let q = ScanMode::Open(key, Compare::Ge);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -844,7 +858,7 @@ mod test {
         }
 
         let key = 6i64.into();
-        let q = ScanMode::Open(key, Compare::LT);
+        let q = ScanMode::Open(key, Compare::Lt);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -868,7 +882,7 @@ mod test {
         }
 
         let key = 6i64.into();
-        let q = ScanMode::Open(key, Compare::LE);
+        let q = ScanMode::Open(key, Compare::Le);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -891,7 +905,7 @@ mod test {
         }
 
         let key = 1i64.into();
-        let q = ScanMode::Open(key, Compare::GE);
+        let q = ScanMode::Open(key, Compare::Ge);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -910,7 +924,7 @@ mod test {
         }
 
         let key = 10i64.into();
-        let q = ScanMode::Open(key, Compare::LE);
+        let q = ScanMode::Open(key, Compare::Le);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -932,14 +946,14 @@ mod test {
 
         // GT from last element
         let key = 10i64.into();
-        let q = ScanMode::Open(key, Compare::GT);
+        let q = ScanMode::Open(key, Compare::Gt);
         let res = tree_ref.scan(q);
 
         assert!(res.is_err());
 
         // LT from first element
         let key = 1i64.into();
-        let q = ScanMode::Open(key, Compare::LT);
+        let q = ScanMode::Open(key, Compare::Lt);
         let res = tree_ref.scan(q);
 
         assert!(res.is_err());
@@ -957,7 +971,7 @@ mod test {
         }
 
         let key = 500i64.into();
-        let q = ScanMode::Open(key, Compare::GT);
+        let q = ScanMode::Open(key, Compare::Gt);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -986,27 +1000,27 @@ mod test {
 
         // Test EQ - deref should return the exact match
         let key = 5i64.into();
-        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::EQ)).unwrap();
+        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Eq)).unwrap();
         let (k, _) = cursor.deref();
         assert_eq!(k.to_string(), "1 0 5");
 
         // Test GE - deref should return the exact match or next greater
-        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::GE)).unwrap();
+        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Ge)).unwrap();
         let (k, _) = cursor.deref();
         assert_eq!(k.to_string(), "1 0 5");
 
         // Test GT - deref should return the next value after key
-        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::GT)).unwrap();
+        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Gt)).unwrap();
         let (k, _) = cursor.deref();
         assert_eq!(k.to_string(), "1 0 6");
 
         // Test LE - deref should return the exact match or next smaller
-        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::LE)).unwrap();
+        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Le)).unwrap();
         let (k, _) = cursor.deref();
         assert_eq!(k.to_string(), "1 0 5");
 
         // Test LT - deref should return the value before key
-        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::LT)).unwrap();
+        let cursor = seek(&btree, &key, SeekConfig::Pred(Compare::Lt)).unwrap();
         let (k, _) = cursor.deref();
         assert_eq!(k.to_string(), "1 0 4");
 
@@ -1023,7 +1037,7 @@ mod test {
 
         assert!(res.is_none());
 
-        let q = ScanMode::Open(1i64.into(), Compare::GT);
+        let q = ScanMode::Open(1i64.into(), Compare::Gt);
         let res = tree_ref.scan(q);
 
         assert!(res.is_err());
@@ -1044,12 +1058,12 @@ mod test {
         assert_eq!(res.unwrap().len(), 1);
 
         // Scan GT (should return none)
-        let q = ScanMode::Open(1i64.into(), Compare::GT);
+        let q = ScanMode::Open(1i64.into(), Compare::Gt);
         let res = tree_ref.scan(q);
         assert!(res.is_err());
 
         // Scan GE (should return the element)
-        let q = ScanMode::Open(1i64.into(), Compare::GE);
+        let q = ScanMode::Open(1i64.into(), Compare::Ge);
         let res = tree_ref.scan(q);
         assert!(res.is_ok());
         assert_eq!(res.unwrap().count(), 1);
@@ -1082,7 +1096,7 @@ mod test {
         let k_lo = "table 1 1".into();
         let k_hi = "table 1 5".into();
         let tree_ref = tree.pager.tree.borrow();
-        let res = ScanMode::range((k_lo, Compare::GE), (k_hi, Compare::GT))?.into_iter(&*tree_ref);
+        let res = ScanMode::range((k_lo, Compare::Ge), (k_hi, Compare::Gt))?.into_iter(&*tree_ref);
 
         assert!(res.is_some());
 

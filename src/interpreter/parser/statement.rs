@@ -227,6 +227,11 @@ mod parser_test {
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
+
+        let input = "SELECT * FROM table;";
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
     }
 
     #[test]

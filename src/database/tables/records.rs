@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::ops::Index;
 
 use tracing::{debug, error};
+use tracing_subscriber::registry::Data;
 
 use crate::database::codec::*;
-use crate::database::tables::tables::{IdxKind, Index};
+use crate::database::tables::keyvalues::DataCellRef;
+use crate::database::tables::tables::{IdxKind, TableIndex};
 use crate::database::tables::{Key, Value};
 use crate::database::types::{BTREE_MAX_KEY_SIZE, BTREE_MAX_VAL_SIZE, DataCell, InputData};
 use crate::database::{
@@ -33,35 +36,26 @@ impl Record {
     }
 
     /// encodes a record into the necessary key value pairs to fulfill all indices of a given table
-    pub fn encode(self, schema: &Table) -> Result<impl Iterator<Item = (Key, Value)>> {
+    pub fn encode(self, table: &Table) -> Result<impl Iterator<Item = (Key, Value)>> {
         debug!(data=?self.data, "encoding");
-        if schema.cols.len() != self.data.len() {
-            error!(?schema, "input doesnt match column count");
+        if table.cols.len() != self.data.len() {
+            error!(?table, "input doesnt match column count");
             return Err(
                 TableError::RecordError("input doesnt match column count".to_string()).into(),
             );
         }
 
-        // validation
-        for (i, cell) in self.data.iter().enumerate() {
-            let cell_type = match cell {
-                DataCell::Str(s) => TypeCol::BYTES,
-                DataCell::Int(_) => TypeCol::INTEGER,
-            };
-            if schema.cols[i].data_type != cell_type {
-                error!(expected=?schema.cols[i].data_type, got=?cell_type, "Record doesnt match column");
-                return Err(
-                    TableError::RecordError("Record doesnt match column".to_string()).into(),
-                );
-            }
-        }
+        self.validate_data_types(table)?;
 
+        // primary key
         let mut pkey_cells: Vec<&DataCell> = vec![];
-        let mut key_cells: Vec<&DataCell>;
+        // secondary key
+        let mut skey_cells: Vec<&DataCell>;
+        // everything else inside the value field
         let mut val_cells: Vec<&DataCell>;
         let mut res = vec![];
 
-        for (i, idx) in schema.indices.iter().enumerate() {
+        for (i, idx) in table.indices.iter().enumerate() {
             let n_cols = idx.columns.len(); // number of columns for an index
 
             match idx.kind {
@@ -90,8 +84,8 @@ impl Record {
                         .map(|c| *c)
                         .chain(val_cells.iter().map(|c| *c));
 
-                    assert_eq!(pkey_cells.len(), schema.pkeys as usize);
-                    let kv = encode_to_kv(schema.id, idx.prefix, data_iter, Some(n_cols))?;
+                    assert_eq!(pkey_cells.len(), table.pkeys as usize);
+                    let kv = encode_to_kv(table.id, idx.prefix, data_iter, Some(n_cols))?;
                     assert!(!kv.0.as_slice().len() > TID_LEN + PREFIX_LEN);
 
                     res.push(kv);
@@ -99,7 +93,7 @@ impl Record {
                 }
                 IdxKind::Secondary => {
                     // constructing Key
-                    key_cells = idx.columns.iter().map(|i| &self.data[*i]).collect();
+                    skey_cells = idx.columns.iter().map(|i| &self.data[*i]).collect();
 
                     // constructing Value
                     val_cells = (pkey_cells.len()..self.data.len())
@@ -113,11 +107,11 @@ impl Record {
                         .collect();
 
                     debug_if_env!("RUSQL_LOG_RECORDS", {
-                        debug!(?key_cells, ?val_cells);
+                        debug!(?skey_cells, ?val_cells);
                     });
 
                     // chaining together
-                    let data_iter = key_cells.iter().map(|c| *c).chain(
+                    let data_iter = skey_cells.iter().map(|c| *c).chain(
                         pkey_cells
                             .iter()
                             .map(|c| *c)
@@ -125,7 +119,7 @@ impl Record {
                     );
 
                     let kv = encode_to_kv(
-                        schema.id,
+                        table.id,
                         idx.prefix,
                         data_iter,
                         Some(pkey_cells.len() + n_cols),
@@ -133,12 +127,12 @@ impl Record {
                     assert!(!kv.0.as_slice().len() > TID_LEN + PREFIX_LEN);
 
                     res.push(kv);
-                    key_cells.clear();
+                    skey_cells.clear();
                     val_cells.clear();
                 }
             };
         }
-        assert_eq!(res.len(), schema.indices.len());
+        assert_eq!(res.len(), table.indices.len());
         Ok(res.into_iter())
     }
 
@@ -147,6 +141,96 @@ impl Record {
         data.extend(kv.0.into_iter());
         data.extend(kv.1.into_iter());
         Record { data }
+    }
+
+    /// takes a key value pair acquired through the given index and transforms it back into the primary key record layout
+    ///
+    /// this function errors if the index isnt found in the table schema or if there is a mismatch between data types
+    pub fn decode_with_index(
+        key: Key,
+        value: Value,
+        index: &TableIndex,
+        table: &Table,
+    ) -> Result<Record> {
+        // does the index exist?
+        if !table.indices.contains(index) {
+            return Err(TableError::RecordDecodeError(
+                "index doesnt exist for provided table".to_string(),
+            )
+            .into());
+        }
+
+        let mut rec = Record { data: vec![] };
+        let mut key_iter = key.into_iter();
+        let mut value_iter = value.into_iter();
+
+        // isolating secondary keys
+        let mut sec_key = HashMap::new();
+        for i in 0..index.columns.len() {
+            sec_key.insert(
+                index.columns[i],
+                key_iter.next().ok_or_else(|| {
+                    TableError::RecordDecodeError("couldnt isolate secondary key".to_string())
+                })?,
+            );
+        }
+
+        // adding primary keys
+        for i in 0..table.pkeys {
+            rec.data.push(key_iter.next().ok_or_else(|| {
+                TableError::RecordDecodeError("couldnt add primary key from key iter".to_string())
+            })?);
+        }
+
+        assert!(key_iter.next().is_none());
+
+        // reconstructing record
+        for i in table.pkeys as usize..table.cols.len() {
+            // inserting secondary key cells into the right position
+            if let Some(cell) = sec_key.remove(&i) {
+                rec.data.push(cell);
+            } else {
+                rec.data.push(value_iter.next().ok_or_else(|| {
+                    TableError::RecordDecodeError(
+                        "couldnt add value from secondary index".to_string(),
+                    )
+                })?)
+            }
+        }
+        rec.validate_data_types(table)?;
+        Ok(rec)
+    }
+
+    fn validate_data_types(&self, table: &Table) -> Result<()> {
+        for (i, cell) in self.data.iter().enumerate() {
+            let cell_type = match cell {
+                DataCell::Str(s) => TypeCol::BYTES,
+                DataCell::Int(_) => TypeCol::INTEGER,
+            };
+            if table.cols[i].data_type != cell_type {
+                error!(expected=?table.cols[i].data_type, got=?cell_type, "Record doesnt match column");
+                return Err(
+                    TableError::RecordError("Record doesnt match column".to_string()).into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &DataCell> {
+        self.data.iter()
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item = DataCell> {
+        self.data.into_iter()
+    }
+}
+
+impl Index<usize> for Record {
+    type Output = DataCell;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
     }
 }
 
@@ -164,8 +248,22 @@ impl std::fmt::Display for Record {
     }
 }
 
+pub struct RecordRef<'a> {
+    data: Vec<DataCellRef<'a>>,
+}
+
+impl<'a> RecordRef<'a> {
+    pub fn from_kv(k: &'a Key, v: &'a Value) -> Self {
+        let mut data: Vec<_> = vec![];
+        data.extend(k.iter());
+        data.extend(v.iter());
+
+        RecordRef { data }
+    }
+}
+
 /// Query object used to construct a key
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Query;
 
 impl Query {
@@ -174,6 +272,15 @@ impl Query {
         QueryCol {
             data: HashMap::new(),
             schema,
+        }
+    }
+
+    /// constructs a key based on a index
+    pub fn by_index<'a>(schema: &'a Table, index: &'a TableIndex) -> QueryIndex<'a> {
+        QueryIndex {
+            data: vec![],
+            schema,
+            index,
         }
     }
 
@@ -236,17 +343,58 @@ impl<'a> QueryCol<'a> {
     }
 }
 
+pub(crate) struct QueryIndex<'a> {
+    data: Vec<DataCell>,
+    schema: &'a Table,
+    index: &'a TableIndex,
+}
+
+impl<'a> QueryIndex<'a> {
+    /// add data to the query, sensitive to order
+    pub fn add(mut self, value: impl InputData) -> Self {
+        self.data.push(value.into_cell());
+        self
+    }
+
+    /// validates data type and constructs a key
+    pub fn encode(self) -> Result<Key> {
+        let schema = self.schema;
+        let index = self.index;
+        let cells = self.data;
+
+        // validating if index cols match the data type
+        for (i, cell) in cells.iter().enumerate() {
+            let col_idx = index.columns[i];
+            if !schema.validate_col_data(&schema.cols[col_idx].title, cell) {
+                return Err(
+                    TableError::QueryError("cell doesnt match data type".to_string()).into(),
+                );
+            }
+        }
+
+        let (k, v) = encode_to_kv(schema.id, index.prefix, cells.iter(), None)?;
+
+        assert_eq!(v.len(), 0);
+        assert!(k.len() > 0);
+
+        Ok(k)
+    }
+}
+
 /// finds the matching index for the provided col/value pairs
 ///
 /// validates data types
-fn find_index<'b>(data: &HashMap<String, DataCell>, schema: &'b Table) -> Option<&'b Index> {
+fn find_index<'b>(data: &HashMap<String, DataCell>, schema: &'b Table) -> Option<&'b TableIndex> {
     let len = data.len();
     if len == 0 {
         return None;
     }
 
     // mapping the data to column indices
-    let col_idx: Vec<usize> = data.iter().filter_map(|e| schema.col_exists(e.0)).collect();
+    let col_idx: Vec<usize> = data
+        .iter()
+        .filter_map(|e| schema.get_col_idx(e.0))
+        .collect();
 
     // columns dont match schema
     if col_idx.len() != len {
@@ -283,7 +431,7 @@ fn find_index<'b>(data: &HashMap<String, DataCell>, schema: &'b Table) -> Option
     }
 
     // validating if index cols match the data type
-    if !data.iter().all(|e| schema.valid_col(e.0, e.1)) {
+    if !data.iter().all(|e| schema.validate_col_data(e.0, e.1)) {
         error!(data=?data, "data types dont match!");
         return None;
     };
@@ -414,6 +562,34 @@ mod test {
     }
 
     #[test]
+    fn queryindex1() -> Result<()> {
+        let path = "test-files/record1.rdb";
+        cleanup_file(path);
+        let db = Arc::new(StorageEngine::new(path));
+        let mut tx = db.begin(&db, TXKind::Write);
+
+        let table = TableBuilder::new()
+            .name("mytable")
+            .id(2)
+            .pkey(2)
+            .add_col("greeter", TypeCol::BYTES)
+            .add_col("number", TypeCol::INTEGER)
+            .add_col("gretee", TypeCol::BYTES)
+            .build(&mut tx)?;
+
+        let q = Query::by_index(&table, &table.indices[0])
+            .add(DataCell::Str("Alice".to_string()))
+            .add(DataCell::Int(1))
+            .encode()?;
+
+        assert_eq!(q.to_string(), "2 0 Alice 1");
+
+        let _ = db.commit(tx);
+        cleanup_file(path);
+        Ok(())
+    }
+
+    #[test]
     fn records_test_str() -> Result<()> {
         let key = Key::from_unencoded_type("hello".to_string());
         assert_eq!(key.to_string(), "1 0 hello");
@@ -482,6 +658,49 @@ mod test {
     }
 
     #[test]
+    fn records_secondary_decode1() -> Result<()> {
+        let path = "test-files/records_secondary_indicies2.rdb";
+        cleanup_file(path);
+        let db = Arc::new(StorageEngine::new(path));
+        let mut tx = db.begin(&db, TXKind::Write);
+
+        let mut table = TableBuilder::new()
+            .name("mytable")
+            .id(2)
+            .pkey(1)
+            .add_col("greeter", TypeCol::BYTES)
+            .add_col("number", TypeCol::INTEGER)
+            .add_col("gretee", TypeCol::BYTES)
+            .build(&mut tx)?;
+
+        table.create_index("number")?;
+        table.add_col_to_index("number", "number")?;
+        assert_eq!(table.indices.len(), 2);
+
+        let s1 = "hello";
+        let i1 = 10;
+        let s2 = "world";
+
+        let mut rec = Record::new().add(s1).add(i1).add(s2).encode(&table)?;
+        let mut kv = rec.next().unwrap();
+
+        assert_eq!(kv.0.to_string(), "2 0 hello");
+        assert_eq!(kv.1.to_string(), "10 world");
+
+        kv = rec.next().unwrap();
+        assert_eq!(kv.0.to_string(), "2 1 10 hello");
+        assert_eq!(kv.1.to_string(), "world");
+
+        let decoded_rec = Record::decode_with_index(kv.0, kv.1, &table.indices[1], &table);
+
+        assert_eq!(decoded_rec.unwrap().to_string(), "hello 10 world");
+
+        let _ = db.commit(tx);
+        cleanup_file(path);
+        Ok(())
+    }
+
+    #[test]
     fn records_secondary_indicies2() -> Result<()> {
         let path = "test-files/records_secondary_indicies2.rdb";
         cleanup_file(path);
@@ -516,6 +735,13 @@ mod test {
         kv = rec.next().unwrap();
         assert_eq!(kv.0.to_string(), "5 1 Berlin 1");
         assert_eq!(kv.1.to_string(), "Alfred Firefighter");
+
+        let decoded_rec = Record::decode_with_index(kv.0, kv.1, &table.indices[1], &table);
+
+        assert_eq!(
+            decoded_rec.unwrap().to_string(),
+            "1 Alfred Berlin Firefighter"
+        );
 
         let _ = db.commit(tx);
         cleanup_file(path);
@@ -556,6 +782,13 @@ mod test {
         // non existant index
         let q = Query::by_col(&table).add("name", "nonexistant").encode();
         assert!(q.is_err());
+
+        // Query by Index
+        let q = Query::by_index(&table, &table.indices[1])
+            .add("New York")
+            .encode();
+        assert!(q.is_ok());
+        assert_eq!(q.unwrap().to_string(), "5 1 New York");
 
         let _ = db.commit(tx);
         cleanup_file(path);

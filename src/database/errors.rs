@@ -108,6 +108,8 @@ pub enum TableError {
     #[error("invalid Record (expected {expected:?}, found {found:?})")]
     RecordEncodeError { expected: TypeCol, found: String },
     #[error("Record error {0}")]
+    RecordDecodeError(String),
+    #[error("Record error {0}")]
     RecordError(String),
 
     // Query

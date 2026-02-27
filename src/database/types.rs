@@ -7,9 +7,13 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::database::{
-    btree::TreeNode,
-    pager::{diskpager::NodeFlag, freelist::FLNode},
+use crate::{
+    database::{
+        btree::TreeNode,
+        pager::{diskpager::NodeFlag, freelist::FLNode},
+        tables::keyvalues::DataCellRef,
+    },
+    interpreter::ValueObject,
 };
 
 pub const BTREE_MAX_KEY_SIZE: usize = 1000;
@@ -161,8 +165,35 @@ pub(crate) enum DataCell {
     Int(i64),
 }
 
+impl DataCell {
+    pub fn as_ref(&self) -> DataCellRef<'_> {
+        match self {
+            DataCell::Str(s) => DataCellRef::Str(s.as_str()),
+            DataCell::Int(i) => DataCellRef::Int(*i),
+        }
+    }
+}
+
+impl std::fmt::Display for DataCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataCell::Str(s) => write!(f, "{s}"),
+            DataCell::Int(i) => write!(f, "{i}"),
+        }
+    }
+}
+
 pub(crate) trait InputData {
     fn into_cell(self) -> DataCell;
+}
+
+impl InputData for ValueObject {
+    fn into_cell(self) -> DataCell {
+        match self {
+            ValueObject::Str(s) => DataCell::Str(String::from(&*s)),
+            ValueObject::Int(i) => DataCell::Int(i),
+        }
+    }
 }
 
 impl InputData for DataCell {

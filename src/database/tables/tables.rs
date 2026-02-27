@@ -73,7 +73,7 @@ impl MetaTable {
                 },
             ],
             pkeys: META_TABLE_PKEYS,
-            indices: vec![Index {
+            indices: vec![TableIndex {
                 name: META_TABLE_COL1.to_string(),
                 columns: (0..META_TABLE_PKEYS as usize).collect(),
                 prefix: PKEY_PREFIX,
@@ -108,7 +108,7 @@ impl TDefTable {
                 },
             ],
             pkeys: DEF_TABLE_PKEYS,
-            indices: vec![Index {
+            indices: vec![TableIndex {
                 name: DEF_TABLE_COL1.to_string(),
                 columns: (0..DEF_TABLE_PKEYS as usize).collect(),
                 prefix: PKEY_PREFIX,
@@ -232,7 +232,7 @@ impl TableBuilder {
             }
         };
 
-        let primary_idx = Index {
+        let primary_idx = TableIndex {
             name: cols[0].title.clone(),
             columns: (0..pkeys as usize).collect(),
             prefix: PKEY_PREFIX,
@@ -256,7 +256,7 @@ pub struct Table {
     pub id: u32,
     pub cols: Vec<Column>,
     pub pkeys: u16,
-    pub indices: Vec<Index>,
+    pub indices: Vec<TableIndex>,
 
     // ensures tables are built through constructor
     _priv: PhantomData<bool>,
@@ -287,8 +287,12 @@ impl Table {
     }
 
     /// checks if col by name exists and matches data type
-    pub fn valid_col<'a, Data: Into<DataCellRef<'a>>>(&self, title: &str, data: Data) -> bool {
-        if title.is_empty() {
+    pub fn validate_col_data<'a, Data: Into<DataCellRef<'a>>>(
+        &self,
+        col_name: &str,
+        data: Data,
+    ) -> bool {
+        if col_name.is_empty() {
             return false;
         }
         let cell_type = match data.into() {
@@ -299,16 +303,21 @@ impl Table {
         return self
             .cols
             .iter()
-            .any(|col| col.title == title && col.data_type == cell_type);
+            .any(|col| col.title == col_name && col.data_type == cell_type);
+    }
+
+    /// does the column exist
+    pub fn col_exists(&self, col_name: &str) -> bool {
+        self.get_col_idx(col_name).is_some()
     }
 
     /// returns idx in column array matching title
-    pub fn col_exists(&self, title: &str) -> Option<usize> {
-        if title.is_empty() {
+    pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
+        if col_name.is_empty() {
             return None;
         }
         for (i, col) in self.cols.iter().enumerate() {
-            if col.title == title {
+            if col.title == col_name {
                 return Some(i);
             }
         }
@@ -316,10 +325,10 @@ impl Table {
     }
 
     /// returns the index that contains the columns
-    pub fn get_index<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&Index> {
+    pub fn get_index<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&TableIndex> {
         let col_indices: Vec<_> = col_names
             .iter()
-            .filter_map(|col| self.col_exists(col.as_ref()))
+            .filter_map(|col| self.get_col_idx(col.as_ref()))
             .collect();
         for index in self.indices.iter() {
             // do all columns in the index match the provided col name indices
@@ -328,6 +337,14 @@ impl Table {
             }
         }
         None
+    }
+
+    pub fn get_col_from_index(&self, index: &TableIndex) -> Vec<&str> {
+        index
+            .columns
+            .iter()
+            .map(|col_idx| self.cols[*col_idx].title.as_str())
+            .collect()
     }
 
     /// returns idx into indices array matching name
@@ -356,7 +373,7 @@ impl Table {
             return Err(TableError::IndexCreateError("index already exists".to_string()).into());
         }
 
-        self.indices.push(Index {
+        self.indices.push(TableIndex {
             name: name.to_string(),
             columns: vec![],
             prefix: self.indices.len() as u16,
@@ -375,7 +392,7 @@ impl Table {
         }
 
         // check if column exists
-        let col_idx = match self.col_exists(col) {
+        let col_idx = match self.get_col_idx(col) {
             Some(i) => i,
             None => {
                 return Err(TableError::IndexCreateError("column doesnt exist".to_string()).into());
@@ -423,7 +440,7 @@ impl Table {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Index {
+pub struct TableIndex {
     /// unique identifier
     pub name: String,
     /// indices into the table.cols
