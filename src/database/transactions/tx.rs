@@ -1227,8 +1227,16 @@ mod scan {
             Query::by_col(&table).add("code", "CODE_001").encode()?,
             Compare::Eq,
         );
-        // EQ is not allowed in open scans, should error
-        assert!(open.is_err());
+
+        assert!(open.is_ok());
+        assert_eq!(
+            open.unwrap()
+                .into_iter(&tx.tree)
+                .unwrap()
+                .collect_records()
+                .len(),
+            1
+        );
 
         db.commit(tx)?;
         cleanup_file(path);

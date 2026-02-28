@@ -48,7 +48,8 @@ impl DiskBuffer {
     pub fn get_clean(&self, ptr: Pointer) -> Option<Node> {
         self.hmap
             .get(&ptr)
-            .and_then(|n| if n.dirty { None } else { Some(n.node.clone()) })
+            .filter(|node| !node.dirty)
+            .map(|node| node.node.clone())
     }
 
     /// retrieves all dirty pages in the buffer
@@ -291,7 +292,7 @@ mod buffer_tests {
     }
 
     #[test]
-    fn buffer_get_clean_only_returns_dirty_pages() {
+    fn buffer_get_clean_only_returns_clean_pages() {
         let mut buf = DiskBuffer::new();
 
         let clean_node = create_test_node();
@@ -303,8 +304,8 @@ mod buffer_tests {
         buf.insert_dirty(dirty_ptr, dirty_node);
 
         // get_clean should only return dirty pages
-        assert!(buf.get_clean(clean_ptr).is_none());
-        assert!(buf.get_clean(dirty_ptr).is_some());
+        assert!(buf.get_clean(clean_ptr).is_some());
+        assert!(buf.get_clean(dirty_ptr).is_none());
     }
 
     #[test]

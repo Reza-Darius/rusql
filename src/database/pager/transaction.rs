@@ -288,7 +288,6 @@ impl DiskPager {
         let mut fl_guard = self.freelist.write();
         let tx_buf = tx.store.tx_buf.as_ref().unwrap().borrow();
         let npages = self.npages.load(R);
-
         let mut count = 0;
         let mut bytes_written = 0;
 
@@ -300,7 +299,7 @@ impl DiskPager {
 
         let mut fl_buf = self.buf_fl.write();
 
-        // freelist write
+        // writing to disk
         for pair in fl_buf.to_dirty_iter() {
             debug!(
                 "writing freelist buffer {:<10} at {:<5}",

@@ -324,7 +324,7 @@ impl Table {
         None
     }
 
-    /// returns the index that contains the columns
+    /// returns the first index that contains the columns
     pub fn get_index<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&TableIndex> {
         let col_indices: Vec<_> = col_names
             .iter()

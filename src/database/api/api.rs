@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
-use tracing::error;
+use tracing::{debug, error, info};
 
 use crate::database::api::response::DBResponse;
+use crate::database::api::types::IteratorDB;
 use crate::database::btree::ScanMode;
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
@@ -35,22 +36,26 @@ impl Database {
 }
 
 impl Database {
-    fn execute(&self, statement: Statement) -> Result<DBResponse> {
+    pub fn execute(&self, statement: Statement) -> Result<DBResponse> {
         // TODO: set up worker
         let mut tx = self.new_tx(TXKind::Read);
-        match statement {
+        let res = match statement {
             Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
             Statement::Insert(insert_statement) => todo!(),
             Statement::Update(update_statement) => todo!(),
             Statement::Delete(delete_statement) => todo!(),
             Statement::Create(create_statement) => todo!(),
-        }
+        };
+        let com_res = self.commit_tx(tx);
+        res
     }
 }
 
 // SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
 
 fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
+    info!(?stmt, "executing select statemetn");
+
     let table = tx.get_table(&stmt.table_name).ok_or_else(|| {
         error!(table = stmt.table_name, "table not found");
         ExecError::ExecutionError("table not found")
@@ -61,7 +66,7 @@ fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
     } else {
         select_columns(tx, &table, &stmt)?
     };
-
+    // TODO: filter
     Ok(DBResponse::from_records(&table, res.as_slice()))
 }
 
@@ -90,6 +95,7 @@ fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Ve
             })?
             .filter_map(|(k, v)| Record::decode_with_index(k, v, table_index, table).ok()) // reorder into primary row layout
             .filter(|rec| filter_record(rec, &col_map))
+            .limit(stmt)
             .collect();
 
         return Ok(res);
@@ -98,9 +104,10 @@ fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Ve
     let scan = select_columns(tx, table, stmt)?;
 
     // filter results against WHERE clauses
-    let res: Vec<_> = scan
+    let res: Vec<Record> = scan
         .into_iter()
         .filter(|rec| filter_record(rec, &col_map))
+        .limit(stmt)
         .collect();
 
     Ok(res)
@@ -151,6 +158,7 @@ fn find_index<'a, 'b>(
     search_index
 }
 
+/// a record needs to be in the primary row layout
 fn filter_record<'a>(record: &'a Record, col_map: &HashMap<usize, &StatementIndex>) -> bool {
     for (col, index) in col_map {
         let data = record[*col].as_ref(); // converting to comparable types without reallocting
@@ -169,10 +177,11 @@ fn filter_record<'a>(record: &'a Record, col_map: &HashMap<usize, &StatementInde
     true
 }
 
-/// resolving select statement with provided columns
+// fn trim_record(record: &Record, cols: StatementColumns) -> Option<
+
+/// resolving select statement with designated columns
 fn select_columns(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<Record>> {
     match &stmt.columns {
-        StatementColumns::Wildcard => return select_full_scan(tx, table, stmt.get_limit()),
         StatementColumns::Cols(columns) => {
             // do the provided columns exist?
             for col in columns {
@@ -185,30 +194,28 @@ fn select_columns(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<
             }
             // do we have a matching index?
             if let Some(index) = table.get_index(columns.as_slice()) {
+                debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
                 let key = Query::by_tid_prefix(table, index.prefix);
-                Ok(ScanMode::prefix(key, &tx.tree)?.collect_records())
+                let res: Vec<Record> = ScanMode::prefix(key, &tx.tree)?
+                    // reorder into primary row layout
+                    .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok())
+                    .limit(stmt)
+                    .collect();
+                return Ok(res);
+            }
             // fall back to full table scan
-            } else {
-                select_full_scan(tx, table, stmt.get_limit())
-            }
+            ()
         }
+        StatementColumns::Wildcard => (),
     }
-}
 
-fn select_full_scan(tx: &mut TX, table: &Table, limit: Option<u32>) -> Result<Vec<Record>> {
-    let mut iter = tx.full_table_scan(table)?;
+    let res = tx
+        .full_table_scan(table)?
+        .map(Record::from_kv)
+        .limit(stmt)
+        .collect();
 
-    if let Some(limit) = limit {
-        let mut res = vec![];
-        for i in 0..limit {
-            while let Some(rec) = iter.next() {
-                res.push(Record::from_kv(rec))
-            }
-        }
-        Ok(res)
-    } else {
-        Ok(iter.collect_records())
-    }
+    Ok(res)
 }
 
 // INSERT INTO table (col1, col2) VALUES (2*2), "Hello";
@@ -228,7 +235,7 @@ mod execute_test {
     use test_log::test;
 
     #[test]
-    fn select_exec() -> Result<()> {
+    fn select_exec_positive1() -> Result<()> {
         let path = "test-files/exec_select_stmt1.rdb";
         cleanup_file(path);
         let db = Database::new(path);
@@ -255,11 +262,23 @@ mod execute_test {
         }
         db.db.commit(tx)?;
 
-        let query = "SELECT * FROM mytable;";
+        let query = "SELECT * FROM mytable LIMIT 2;";
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0));
         assert!(res.is_ok());
+
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+        assert_eq!(rows.len(), 2);
+
+        assert_eq!(&rows[0][0], "Alice");
+        assert_eq!(&rows[0][1], "20");
+        assert_eq!(&rows[0][2], "1");
+
+        assert_eq!(&rows[1][0], "Bob");
+        assert_eq!(&rows[1][1], "15");
+        assert_eq!(&rows[1][2], "2");
+
         println!("{}", res.unwrap());
 
         let query = "SELECT * FROM mytable WHERE age >= 20;";
@@ -267,14 +286,86 @@ mod execute_test {
 
         let res = db.execute(stmt.remove(0));
         assert!(res.is_ok());
+
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+        assert_eq!(rows.len(), 2);
+
+        assert_eq!(&rows[0][0], "Alice");
+        assert_eq!(&rows[0][1], "20");
+        assert_eq!(&rows[0][2], "1");
+
+        assert_eq!(&rows[1][0], "Charlie");
+        assert_eq!(&rows[1][1], "25");
+        assert_eq!(&rows[1][2], "3");
+
         println!("{}", res.unwrap());
 
-        let query = "SELECT age FROM mytable WHERE age = 20;";
+        let query = "SELECT age FROM mytable WHERE age = 20, id = 1;";
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0));
         assert!(res.is_ok());
+
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+        assert_eq!(rows.len(), 1);
+
+        assert_eq!(&rows[0][0], "Alice");
+        assert_eq!(&rows[0][1], "20");
+        assert_eq!(&rows[0][2], "1");
+
         println!("{}", res.unwrap());
+
+        cleanup_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn select_exec_negative1() -> Result<()> {
+        let path = "test-files/exec_select_stmt2.rdb";
+        cleanup_file(path);
+        let db = Database::new(path);
+        let mut tx = db.db.begin(&db.db, TXKind::Write);
+
+        let table = TableBuilder::new()
+            .id(3)
+            .name("mytable")
+            .add_col("name", TypeCol::BYTES)
+            .add_col("age", TypeCol::INTEGER)
+            .add_col("id", TypeCol::INTEGER)
+            .pkey(1)
+            .build(&mut tx)?;
+
+        tx.insert_table(&table)?;
+
+        let mut entries = vec![];
+        entries.push(Record::new().add("Alice").add(20).add(1));
+        entries.push(Record::new().add("Bob").add(15).add(2));
+        entries.push(Record::new().add("Charlie").add(25).add(3));
+
+        for entry in entries {
+            tx.insert_rec(entry, &table, SetFlag::UPSERT)?;
+        }
+        db.db.commit(tx)?;
+
+        // negative cases
+        let query = "SELECT age FROM mytable WHERE id = 9999;";
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().len(), 0);
+
+        let query = "SELECT asdfgsd FROM mytable WHERE id = 3;";
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_err());
+
+        let query = "SELECT col FROM non_table;";
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_err());
 
         cleanup_file(path);
         Ok(())

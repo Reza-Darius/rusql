@@ -10,6 +10,16 @@ pub struct DBResponse {
     query_result: Option<QueryResponse>,
 }
 
+impl DBResponse {
+    pub fn get_rows(&self) -> Option<&[Vec<String>]> {
+        if let Some(q) = &self.query_result {
+            Some(q.rows.as_slice())
+        } else {
+            None
+        }
+    }
+}
+
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.query_result {
@@ -103,6 +113,13 @@ impl DBResponse {
                 .collect(),
         });
         DBResponse { query_result }
+    }
+
+    pub fn len(&self) -> usize {
+        match &self.query_result {
+            Some(q) => q.rows.len(),
+            None => 0,
+        }
     }
 
     fn rows(self) -> String {

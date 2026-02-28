@@ -14,6 +14,10 @@ pub enum Statement {
     Create(CreateStatement),
 }
 
+pub trait StatementInterface {
+    fn get_limit(&self) -> Option<usize>;
+}
+
 #[derive(Debug)]
 pub struct SelectStatement {
     pub columns: StatementColumns,
@@ -38,9 +42,11 @@ impl SelectStatement {
         }
         Ok(())
     }
+}
 
-    pub fn get_limit(&self) -> Option<u32> {
-        self.limit.as_ref().map(|limit| limit.0 as u32)
+impl StatementInterface for SelectStatement {
+    fn get_limit(&self) -> Option<usize> {
+        self.limit.as_ref().map(|limit| limit.0 as usize)
     }
 }
 
@@ -72,7 +78,6 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
         Token::Keyword(Keyword::Limit) => {
             debug!("parsing LIMIT clause");
             statement.limit = Some(parse_limit(parser)?);
-            return Ok(Statement::Select(statement));
         }
         t => {
             return Err(ParseError::InvalidToken {
@@ -83,20 +88,23 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
         }
     };
 
-    match &parser.lexer.current {
-        Token::Seperator(Seperator::Semicolon) => (),
-        Token::Keyword(Keyword::Limit) => {
-            debug!("parsing LIMIT clause");
-            statement.limit = Some(parse_limit(parser)?);
-        }
-        t => {
-            return Err(ParseError::InvalidToken {
-                expected: "expected LIMIT clause".to_string(),
-                got: t.to_string(),
+    // LIMIT plus WHERE
+    if statement.limit.is_none() {
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Semicolon) => (),
+            Token::Keyword(Keyword::Limit) => {
+                debug!("parsing LIMIT clause");
+                statement.limit = Some(parse_limit(parser)?);
             }
-            .into());
-        }
-    };
+            t => {
+                return Err(ParseError::InvalidToken {
+                    expected: "expected LIMIT clause".to_string(),
+                    got: t.to_string(),
+                }
+                .into());
+            }
+        };
+    }
 
     if let Some(t) = parser.next()
         && (*t != Token::Seperator(Seperator::Semicolon))
