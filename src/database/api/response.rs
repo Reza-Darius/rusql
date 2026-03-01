@@ -1,8 +1,11 @@
 use std::fmt;
 
 use crate::{
-    database::tables::{Record, tables::Table},
-    interpreter::Statement,
+    database::{
+        tables::{Record, keyvalues::DataCellRef, tables::Table},
+        types::DataCell,
+    },
+    interpreter::{SelectStatement, StatementColumns},
 };
 
 #[derive(Debug, Default)]
@@ -10,15 +13,7 @@ pub struct DBResponse {
     query_result: Option<QueryResponse>,
 }
 
-impl DBResponse {
-    pub fn get_rows(&self) -> Option<&[Vec<String>]> {
-        if let Some(q) = &self.query_result {
-            Some(q.rows.as_slice())
-        } else {
-            None
-        }
-    }
-}
+impl DBResponse {}
 
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -95,23 +90,30 @@ impl fmt::Display for QueryResponse {
     }
 }
 
-impl QueryResponse {
-    fn render(&self) {}
-}
-
 impl DBResponse {
-    pub fn new(stmt: &Statement, records: Option<&[Record]>) -> Self {
-        todo!()
+    pub fn get_rows(&self) -> Option<&[Vec<String>]> {
+        if let Some(q) = &self.query_result {
+            Some(q.rows.as_slice())
+        } else {
+            None
+        }
     }
 
-    pub fn from_records(table: &Table, records: &[Record]) -> Self {
-        let query_result = Some(QueryResponse {
-            columns: table.cols.iter().map(|col| col.title.clone()).collect(),
-            rows: records
-                .iter()
-                .map(|rec| rec.iter().map(|cell| cell.to_string()).collect())
-                .collect(),
-        });
+    pub fn from_records(
+        records: &[FilteredRecord],
+        columns: &StatementColumns,
+        table: &Table,
+    ) -> Self {
+        let columns = match columns {
+            StatementColumns::Wildcard => table.cols.iter().map(|col| col.title.clone()).collect(),
+            StatementColumns::Cols(cols) => cols.iter().map(|col| col.clone()).collect(),
+        };
+        let rows = records
+            .iter()
+            .map(|rec| rec.iter().map(|cell| cell.to_string()).collect())
+            .collect();
+
+        let query_result = Some(QueryResponse { columns, rows });
         DBResponse { query_result }
     }
 
@@ -121,8 +123,25 @@ impl DBResponse {
             None => 0,
         }
     }
+}
 
-    fn rows(self) -> String {
-        todo!()
+#[derive(Debug)]
+pub struct FilteredRecord(Vec<DataCell>);
+
+impl FilteredRecord {
+    fn iter(&self) -> impl Iterator<Item = &DataCell> {
+        self.0.iter()
+    }
+}
+
+impl From<Vec<DataCell>> for FilteredRecord {
+    fn from(value: Vec<DataCell>) -> Self {
+        FilteredRecord(value)
+    }
+}
+
+impl From<Record> for FilteredRecord {
+    fn from(value: Record) -> Self {
+        FilteredRecord(value.into_vec())
     }
 }

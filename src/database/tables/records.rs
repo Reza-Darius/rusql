@@ -154,11 +154,19 @@ impl Record {
     ) -> Result<Record> {
         // does the index exist?
         if !table.indices.contains(index) {
+            error!("index doesnt exist for provided table");
             return Err(TableError::RecordDecodeError(
                 "index doesnt exist for provided table".to_string(),
             )
             .into());
         }
+
+        // if they records is the primary index we dont need to rearrange it
+        if index.kind == IdxKind::Primary {
+            return Ok(Record::from_kv((key, value)));
+        }
+
+        debug!("decoding {key}, {value}");
 
         let mut rec = Record { data: vec![] };
         let mut key_iter = key.into_iter();
@@ -170,6 +178,7 @@ impl Record {
             sec_key.insert(
                 index.columns[i],
                 key_iter.next().ok_or_else(|| {
+                    error!("couldnt isolate secondary key");
                     TableError::RecordDecodeError("couldnt isolate secondary key".to_string())
                 })?,
             );
@@ -178,6 +187,7 @@ impl Record {
         // adding primary keys
         for i in 0..table.pkeys {
             rec.data.push(key_iter.next().ok_or_else(|| {
+                error!("couldnt add primary key from key iter");
                 TableError::RecordDecodeError("couldnt add primary key from key iter".to_string())
             })?);
         }
@@ -198,6 +208,8 @@ impl Record {
             }
         }
         rec.validate_data_types(table)?;
+
+        debug!(?rec, "reordered record");
         Ok(rec)
     }
 
@@ -223,6 +235,10 @@ impl Record {
 
     pub fn into_iter(self) -> impl Iterator<Item = DataCell> {
         self.data.into_iter()
+    }
+
+    pub fn into_vec(self) -> Vec<DataCell> {
+        self.data
     }
 }
 

@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use tracing::{debug, error, info};
 
-use crate::database::api::response::DBResponse;
-use crate::database::api::types::IteratorDB;
+use crate::database::api::response::{DBResponse, FilteredRecord};
 use crate::database::btree::ScanMode;
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
@@ -13,6 +12,7 @@ use crate::database::tables::tables::{Table, TableIndex};
 use crate::database::tables::{Query, Record};
 use crate::database::transactions::kvdb::*;
 use crate::database::transactions::tx::*;
+use crate::database::types::IteratorDB;
 use crate::interpreter::*;
 
 struct Database {
@@ -53,7 +53,7 @@ impl Database {
 
 // SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
 
-fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
+pub fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
     info!(?stmt, "executing select statemetn");
 
     let table = tx.get_table(&stmt.table_name).ok_or_else(|| {
@@ -66,54 +66,85 @@ fn exec_select(tx: &mut TX, stmt: SelectStatement) -> Result<DBResponse> {
     } else {
         select_columns(tx, &table, &stmt)?
     };
-    // TODO: filter
-    Ok(DBResponse::from_records(&table, res.as_slice()))
+
+    Ok(DBResponse::from_records(
+        res.as_slice(),
+        &stmt.columns,
+        &table,
+    ))
 }
 
-/// resolving select statement with where clause
-fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<Record>> {
+/// evaluates select statement with WHERE clause
+fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<FilteredRecord>> {
     let indices = stmt.index.as_ref().ok_or_else(|| {
         error!("select_where() called without WHERE clause");
         ExecError::ExecutionError("select_where() called without WHERE clause")
     })?;
 
     // mapping column indices to WHERE clauses
-    let col_map = validate_where_clause(table, &indices[..])?;
+    let where_col_map = validate_where_clause(table, &indices[..])?;
 
-    if let Some((table_index, stmt_index)) = find_index(table, &col_map) {
+    let select_col_indices = match &stmt.columns {
+        StatementColumns::Wildcard => None,
+        StatementColumns::Cols(columns) => {
+            Some(validate_select_columns(columns.as_slice(), table)?)
+        }
+    };
+
+    // do we have an index for the WHERE columns?
+    if let Some((table_index, stmt_index)) = find_index(table, &where_col_map) {
+        // query the database
         let key = Query::by_index(table, table_index)
             .add(stmt_index.expr.clone())
             .encode()?;
         let scan = ScanMode::open(key, stmt_index.operator.into())?;
 
         // filter results against non-indexed WHERE clauses
-        let res: Vec<_> = scan
+        let iter = scan
             .into_iter(&tx.tree)
             .ok_or_else(|| {
                 error!("failed to create iterator");
                 ExecError::ExecutionError("failed to create iterator")
             })?
             .filter_map(|(k, v)| Record::decode_with_index(k, v, table_index, table).ok()) // reorder into primary row layout
-            .filter(|rec| filter_record(rec, &col_map))
-            .limit(stmt)
-            .collect();
+            .filter(|rec| filter_record(rec, &where_col_map));
+
+        // filter against possible select columns
+        let res: Vec<FilteredRecord> = match select_col_indices {
+            Some(col_indices) => iter
+                .map(|rec| filter_columns(rec, col_indices.as_slice()))
+                .limit(stmt)
+                .collect(),
+            None => iter.map(|rec| rec.into()).limit(stmt).collect(),
+        };
 
         return Ok(res);
     }
-    // no index found: we fall back to SELECT columns
-    let scan = select_columns(tx, table, stmt)?;
+    // query the database without index
+    let scan = tx.full_table_scan(table)?;
 
     // filter results against WHERE clauses
-    let res: Vec<Record> = scan
+    let iter = scan
         .into_iter()
-        .filter(|rec| filter_record(rec, &col_map))
-        .limit(stmt)
-        .collect();
+        .map(Record::from_kv)
+        .filter(|rec| filter_record(rec, &where_col_map));
+
+    // filter against possible select columns
+    let res: Vec<FilteredRecord> = match select_col_indices {
+        Some(col_indices) => iter
+            .map(|rec| filter_columns(rec, col_indices.as_slice()))
+            .limit(stmt)
+            .collect(),
+        None => iter.map(|rec| rec.into()).limit(stmt).collect(),
+    };
 
     Ok(res)
 }
 
 // check columns and data types
+//
+/// validates WHERE clauses for appropiate data types
+///
 /// mapping index in column array to statment index for later filtering
 fn validate_where_clause<'a>(
     table: &Table,
@@ -137,8 +168,26 @@ fn validate_where_clause<'a>(
     Ok(col_map)
 }
 
-// TODO: support multi key indices
-/// do we have an index we can query by?
+/// ensures the provided columns exist and returns their corresponding indices
+fn validate_select_columns<T: AsRef<str> + std::fmt::Debug>(
+    columns: &[T],
+    table: &Table,
+) -> Result<Vec<usize>> {
+    // do the provided columns exist?
+    let col_indices: Vec<usize> = columns
+        .iter()
+        .filter_map(|col| table.get_col_idx(col.as_ref()))
+        .collect();
+    if col_indices.len() != columns.len() {
+        error!(?columns, "couldnt find all columns in table schema");
+        return Err(ExecError::ExecutionError("couldnt find all columns in table schema").into());
+    }
+    Ok(col_indices)
+}
+
+/// finds an index for the provided column map, used in WHERE clauses
+///
+/// returns the first matching index found, does not support multi key indices as of yet
 fn find_index<'a, 'b>(
     table: &'a Table,
     col_map: &'b HashMap<usize, &'b StatementIndex>,
@@ -158,6 +207,8 @@ fn find_index<'a, 'b>(
     search_index
 }
 
+/// filters records based on WHERE clause predicates
+///
 /// a record needs to be in the primary row layout
 fn filter_record<'a>(record: &'a Record, col_map: &HashMap<usize, &StatementIndex>) -> bool {
     for (col, index) in col_map {
@@ -179,47 +230,81 @@ fn filter_record<'a>(record: &'a Record, col_map: &HashMap<usize, &StatementInde
 
 // fn trim_record(record: &Record, cols: StatementColumns) -> Option<
 
-/// resolving select statement with designated columns
-fn select_columns(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Vec<Record>> {
+/// resolving select statement without where clause
+fn select_columns(
+    tx: &mut TX,
+    table: &Table,
+    stmt: &SelectStatement,
+) -> Result<Vec<FilteredRecord>> {
     match &stmt.columns {
         StatementColumns::Cols(columns) => {
             // do the provided columns exist?
-            for col in columns {
-                if !table.col_exists(col) {
-                    error!(col, "couldnt find column in table schema");
-                    return Err(
-                        ExecError::ExecutionError("couldnt find column in table schema").into(),
-                    );
-                }
-            }
-            // do we have a matching index?
+            let col_indices: Vec<usize> = validate_select_columns(columns.as_slice(), table)?;
+
+            // do we have an index?
             if let Some(index) = table.get_index(columns.as_slice()) {
                 debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
+
                 let key = Query::by_tid_prefix(table, index.prefix);
-                let res: Vec<Record> = ScanMode::prefix(key, &tx.tree)?
-                    // reorder into primary row layout
-                    .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok())
+                let res: Vec<FilteredRecord> = ScanMode::prefix(key, &tx.tree)?
+                    .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok()) // reorder into primary row layout
+                    .map(|record| filter_columns(record, col_indices.as_slice()))
                     .limit(stmt)
                     .collect();
+
+                debug!(?res, "filtered records");
                 return Ok(res);
             }
+
             // fall back to full table scan
-            ()
+            debug!(?columns, ?col_indices, "full table scan");
+            let res = tx
+                .full_table_scan(table)?
+                .map(Record::from_kv)
+                .map(|record| filter_columns(record, col_indices.as_slice()))
+                .limit(stmt)
+                .collect();
+
+            Ok(res)
         }
-        StatementColumns::Wildcard => (),
+        StatementColumns::Wildcard => {
+            debug!("full table scan wildcard");
+            let res = tx
+                .full_table_scan(table)?
+                .map(Record::from_kv)
+                .map(|record| record.into())
+                .limit(stmt)
+                .collect();
+
+            Ok(res)
+        }
+    }
+}
+
+/// creates a new record by whitelisting the columns provided in the slice, the caller has to ensure the proper order
+///
+/// if an empty slice is provided, it does a one to one conversion without altering the record
+fn filter_columns<'a>(record: Record, whitelist: &[usize]) -> FilteredRecord {
+    if whitelist.is_empty() {
+        return FilteredRecord::from(record);
+    };
+    debug!("filtering {:?} for whitelist {:?}", record, whitelist);
+
+    let mut filtered_rec = vec![];
+    let mut rec = record.into_vec();
+    let mut removed = 0; // offset when indexing into the rec after removing elements
+
+    for idx in whitelist {
+        let cell = rec.remove(*idx - removed);
+        filtered_rec.push(cell);
+        removed += 1;
     }
 
-    let res = tx
-        .full_table_scan(table)?
-        .map(Record::from_kv)
-        .limit(stmt)
-        .collect();
-
-    Ok(res)
+    FilteredRecord::from(filtered_rec)
 }
 
 // INSERT INTO table (col1, col2) VALUES (2*2), "Hello";
-fn exec_insert(db: &Database, stmt: SelectStatement) -> Result<()> {
+fn exec_insert(tx: &mut TX, stmt: InsertStatement) -> Result<()> {
     todo!()
 }
 
@@ -279,7 +364,7 @@ mod execute_test {
         assert_eq!(&rows[1][1], "15");
         assert_eq!(&rows[1][2], "2");
 
-        println!("{}", res.unwrap());
+        println!("{query}\n{}", res.unwrap());
 
         let query = "SELECT * FROM mytable WHERE age >= 20;";
         let mut stmt = Parser::parse(query)?;
@@ -298,7 +383,7 @@ mod execute_test {
         assert_eq!(&rows[1][1], "25");
         assert_eq!(&rows[1][2], "3");
 
-        println!("{}", res.unwrap());
+        println!("{query}\n{}", res.unwrap());
 
         let query = "SELECT age FROM mytable WHERE age = 20, id = 1;";
         let mut stmt = Parser::parse(query)?;
@@ -309,11 +394,29 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
         assert_eq!(rows.len(), 1);
 
+        assert_eq!(&rows[0][0], "20");
+
+        println!("{query}\n{}", res.unwrap());
+
+        let query = "SELECT name, age FROM mytable;";
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+        assert_eq!(rows.len(), 3);
+
         assert_eq!(&rows[0][0], "Alice");
         assert_eq!(&rows[0][1], "20");
-        assert_eq!(&rows[0][2], "1");
 
-        println!("{}", res.unwrap());
+        assert_eq!(&rows[1][0], "Bob");
+        assert_eq!(&rows[1][1], "15");
+
+        assert_eq!(&rows[2][0], "Charlie");
+        assert_eq!(&rows[2][1], "25");
+
+        println!("{query}\n{}", res.unwrap());
 
         cleanup_file(path);
         Ok(())

@@ -254,3 +254,43 @@ impl InputData for u8 {
         DataCell::Int(self as i64)
     }
 }
+
+use crate::interpreter::StatementInterface;
+
+pub struct LimitIter<I> {
+    iter: I,
+    limit: Option<usize>,
+    count: usize,
+}
+
+impl<I: Iterator> Iterator for LimitIter<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(limit) = self.limit {
+            if self.count < limit {
+                self.count += 1;
+                self.iter.next()
+            } else {
+                None
+            }
+        } else {
+            self.iter.next()
+        }
+    }
+}
+
+pub trait IteratorDB: Iterator + Sized {
+    /// limits the amount of iterations based on a LIMIT clause
+    ///
+    /// has no effect if there is no LIMIT clause is present
+    fn limit(self, stmt: &impl StatementInterface) -> LimitIter<Self> {
+        LimitIter {
+            iter: self,
+            limit: stmt.get_limit(),
+            count: 0,
+        }
+    }
+}
+
+impl<T: Iterator> IteratorDB for T {}
