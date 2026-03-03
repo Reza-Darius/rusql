@@ -4,7 +4,10 @@ use tracing::{debug, error, info, instrument};
 
 use crate::database::{
     BTree,
-    btree::{DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag, SetResponse, Tree},
+    btree::{
+        Compare, CursorDir, DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag,
+        SetResponse, Tree,
+    },
     errors::{Error, Result, TXError, TableError},
     pager::MetaPage,
     tables::{
@@ -259,11 +262,15 @@ impl TX {
     }
 
     /// scans all primary keys in a table
-    pub fn full_table_scan(&self, schema: &Table) -> Result<PrefixScanIter<'_, TXStore>> {
+    pub fn full_table_scan(&self, schema: &Table) -> Result<ScanIter<'_, TXStore>> {
         // writing a seek key with TID and Prefix 0
         let key = Query::by_tid_prefix(schema, PKEY_PREFIX);
         debug!(%key, "full table scan key");
-        ScanMode::prefix(key, &self.tree)
+        Ok(
+            ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
+                .into_iter(&self.tree),
+        )
+        // ScanMode::prefix(key, &self.tree, Compare::Eq)
     }
 
     /// counts all unique rows inside a table
@@ -275,7 +282,9 @@ impl TX {
     /// counts all entries inside a table, this includes secondary indices
     pub fn count_entries(&self, schema: &Table) -> Result<u32> {
         let key = Query::by_tid(schema);
-        let scan = ScanMode::prefix(key, &self.tree)?;
+        // let scan = ScanMode::prefix(key, &self.tree, Compare::Eq)?;
+        let scan = ScanMode::open(key, Compare::Ge, CursorDir::Next)?.into_iter(&self.tree);
+
         Ok(scan.count() as u32)
     }
 
@@ -501,7 +510,7 @@ impl TX {
 
         let prefix = table.indices[idx].prefix;
         let q = Query::by_tid_prefix(table, prefix);
-        let kvs: Vec<(Key, Value)> = ScanMode::prefix(q, &self.tree)?.collect();
+        let kvs: Vec<(Key, Value)> = ScanMode::prefix(q, &self.tree, Compare::Eq)?.collect();
         assert!(kvs.len() > 0);
         assert!(prefix != 0);
 
@@ -893,6 +902,7 @@ mod tables {
         let open = ScanMode::open(
             Query::by_col(&table1).add("name", "Alice").encode()?,
             Compare::Ge,
+            CursorDir::Next,
         )?;
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -901,7 +911,11 @@ mod tables {
         assert_eq!(res[1].to_string(), "Bob 15");
         assert_eq!(res[2].to_string(), "Charlie 25");
 
-        let open = ScanMode::open(Query::by_col(&table2).add("id", 20).encode()?, Compare::Ge)?;
+        let open = ScanMode::open(
+            Query::by_col(&table2).add("id", 20).encode()?,
+            Compare::Ge,
+            CursorDir::Next,
+        )?;
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
         assert_eq!(res.len(), 2);
@@ -1093,6 +1107,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table1).add("key", "key_a_1").encode()?,
             Compare::Ge,
+            CursorDir::Next,
         )?;
         let res1: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -1104,6 +1119,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table2).add("key", "key_b_1").encode()?,
             Compare::Ge,
+            CursorDir::Next,
         )?;
         let res2: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -1147,6 +1163,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("score", 50i64).encode()?,
             Compare::Lt,
+            CursorDir::Prev,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1190,10 +1207,11 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
+            CursorDir::Next,
         )?;
 
-        let result = tx.tree_scan(open);
-        assert!(result.is_err()); // Should error on empty result
+        let mut result = tx.tree_scan(open)?;
+        assert!(result.next().is_none()); // Should error on empty result
 
         db.commit(tx)?;
         cleanup_file(path);
@@ -1226,17 +1244,11 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("code", "CODE_001").encode()?,
             Compare::Eq,
+            CursorDir::Next,
         );
 
         assert!(open.is_ok());
-        assert_eq!(
-            open.unwrap()
-                .into_iter(&tx.tree)
-                .unwrap()
-                .collect_records()
-                .len(),
-            1
-        );
+        assert_eq!(open.unwrap().into_iter(&tx.tree).collect_records().len(), 1);
 
         db.commit(tx)?;
         cleanup_file(path);
@@ -1272,6 +1284,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("value", 35i64).encode()?,
             Compare::Le,
+            CursorDir::Prev,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1315,6 +1328,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
+            CursorDir::Next,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1358,6 +1372,7 @@ mod scan {
         let open = ScanMode::open(
             Query::by_col(&table).add("name", "bob").encode()?,
             Compare::Ge,
+            CursorDir::Next,
         )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
@@ -1403,7 +1418,11 @@ mod scan {
         }
 
         // Scan from beginning
-        let open = ScanMode::open(Query::by_col(&table).add("id", 1i64).encode()?, Compare::Ge)?;
+        let open = ScanMode::open(
+            Query::by_col(&table).add("id", 1i64).encode()?,
+            Compare::Ge,
+            CursorDir::Next,
+        )?;
 
         let res: Vec<_> = tx.tree_scan(open)?.collect_records();
 
@@ -2788,10 +2807,9 @@ mod secondary_index_ops {
             .add("email", "alice@example.com")
             .encode()?;
 
-        let mut scan = ScanMode::open(email_query, Compare::Ge)
+        let mut scan = ScanMode::open(email_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
 
         let result = scan.next().unwrap();
         let key = result.0.decode();
@@ -2849,10 +2867,9 @@ mod secondary_index_ops {
         let eng_query = Query::by_col(&table)
             .add("department", "Engineering")
             .encode()?;
-        let mut scan = ScanMode::open(eng_query, Compare::Ge)
+        let mut scan = ScanMode::open(eng_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         let mut count = 0;
         while let Some(_) = scan.next() {
             count += 1;
@@ -2900,26 +2917,23 @@ mod secondary_index_ops {
 
         // Query by each secondary index
         let name_query = Query::by_col(&table).add("name", "Laptop").encode()?;
-        let mut scan = ScanMode::open(name_query, Compare::Ge)
+        let mut scan = ScanMode::open(name_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by name
 
         let category_query = Query::by_col(&table)
             .add("category", "Electronics")
             .encode()?;
-        let mut scan = ScanMode::open(category_query, Compare::Ge)
+        let mut scan = ScanMode::open(category_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by category
 
         let price_query = Query::by_col(&table).add("price", 1500i64).encode()?;
-        let mut scan = ScanMode::open(price_query, Compare::Ge)
+        let mut scan = ScanMode::open(price_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by price
 
         db.commit(tx)?;
@@ -2957,10 +2971,9 @@ mod secondary_index_ops {
 
         // Verify it exists via secondary index
         let status_query = Query::by_col(&table).add("status", "active").encode()?;
-        let mut scan = ScanMode::open(status_query.clone(), Compare::Ge)
+        let mut scan = ScanMode::open(status_query.clone(), Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         assert!(scan.next().is_some());
 
         // Delete the record
@@ -2971,11 +2984,11 @@ mod secondary_index_ops {
         assert!(tx.tree_get(pk_query).is_none());
 
         // Verify secondary index entry is also gone (should be handled by record deletion)
-        let scan = ScanMode::open(status_query, Compare::Ge)
+        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
 
-        assert!(scan.is_none());
+        assert!(scan.next().is_none());
 
         db.commit(tx)?;
         cleanup_file(path);
@@ -3071,10 +3084,9 @@ mod secondary_index_ops {
 
         // Read via username secondary index
         let username_query = Query::by_col(&table).add("username", "alice").encode()?;
-        let mut scan = ScanMode::open(username_query, Compare::Ge)
+        let mut scan = ScanMode::open(username_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("alice@example.com".to_string()));
@@ -3084,10 +3096,9 @@ mod secondary_index_ops {
         let email_query = Query::by_col(&table)
             .add("email", "bob@example.com")
             .encode()?;
-        let mut scan = ScanMode::open(email_query, Compare::Ge)
+        let mut scan = ScanMode::open(email_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
 
         let result = scan.next().unwrap();
 
@@ -3134,10 +3145,9 @@ mod secondary_index_ops {
 
         // Verify initial state
         let status_query = Query::by_col(&table).add("status", "pending").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::Ge)
+        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Int(100));
@@ -3154,10 +3164,9 @@ mod secondary_index_ops {
 
         // Verify new secondary index entry exists
         let new_status_query = Query::by_col(&table).add("status", "completed").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::Ge)
+        let mut scan = ScanMode::open(new_status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx.tree)
-            .unwrap();
+            .into_iter(&tx.tree);
         assert!(scan.next().is_some());
 
         db.commit(tx)?;
@@ -3197,7 +3206,7 @@ mod secondary_index_ops {
 
         // Scan from score 100 onwards
         let start_key = Query::by_col(&table).add("score", 100i64).encode()?;
-        let scan_mode = ScanMode::open(start_key, Compare::Ge)?;
+        let scan_mode = ScanMode::open(start_key, Compare::Ge, CursorDir::Next)?;
         let results: Vec<_> = tx.tree_scan(scan_mode)?.collect_records();
 
         // Should get records with scores from 100 to 200 (11 records)
@@ -3210,7 +3219,7 @@ mod secondary_index_ops {
 
     #[test]
     fn concurrent_inserts_different_secondary_values() -> Result<()> {
-        let path = "test-files/concurrent_secondary_inserts.rdb";
+        let path = "test-files/concurrent_secondary_inserts1.rdb";
         cleanup_file(path);
         let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
@@ -3278,12 +3287,13 @@ mod secondary_index_ops {
         assert_eq!(results.iter().filter(|r| r.is_ok()).count(), n_threads);
 
         // Verify records via secondary index
+        info!("verifying records via secondary index");
         let tx = db.begin(&db, TXKind::Read);
 
         let tag = format!("tag_0");
         let tag_query = Query::by_col(&table).add("tag", tag).encode()?;
 
-        let scan = ScanMode::prefix(tag_query, &tx.tree);
+        let scan = ScanMode::prefix(tag_query, &tx.tree, Compare::Ge);
         assert_eq!(scan.unwrap().count(), n_threads);
 
         db.commit(tx)?;
@@ -3322,10 +3332,9 @@ mod secondary_index_ops {
         // Transaction 2: Read via secondary index
         let tx2 = db.begin(&db, TXKind::Read);
         let status_query = Query::by_col(&table).add("status", "draft").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::Ge)
+        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx2.tree)
-            .unwrap();
+            .into_iter(&tx2.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("content_1".to_string()));
@@ -3343,10 +3352,9 @@ mod secondary_index_ops {
         // Transaction 4: Verify update via secondary index
         let tx4 = db.begin(&db, TXKind::Read);
         let new_status_query = Query::by_col(&table).add("status", "published").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::Ge)
+        let mut scan = ScanMode::open(new_status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
-            .into_iter(&tx4.tree)
-            .unwrap();
+            .into_iter(&tx4.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("updated_content".to_string()));
@@ -3396,7 +3404,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data"));
@@ -3411,7 +3419,7 @@ mod secondary_index_ops {
 
     #[test]
     fn delete_sec_idx_existing_keys() -> Result<()> {
-        let path = "create_sec_idx.rdb";
+        let path = "create_sec_idx2.rdb";
         cleanup_file(path);
         let db = Arc::new(StorageEngine::new(path));
         let mut tx = db.begin(&db, TXKind::Write);
@@ -3456,7 +3464,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data_{i}"));
@@ -3473,7 +3481,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 2);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 2 data_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("tag_{i}"));

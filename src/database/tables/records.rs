@@ -6,10 +6,11 @@ use tracing::{debug, error};
 use tracing_subscriber::registry::Data;
 
 use crate::database::codec::*;
-use crate::database::tables::keyvalues::DataCellRef;
 use crate::database::tables::tables::{IdxKind, TableIndex};
 use crate::database::tables::{Key, Value};
-use crate::database::types::{BTREE_MAX_KEY_SIZE, BTREE_MAX_VAL_SIZE, DataCell, InputData};
+use crate::database::types::{
+    BTREE_MAX_KEY_SIZE, BTREE_MAX_VAL_SIZE, DataCell, DataCellRef, InputData,
+};
 use crate::database::{
     errors::{Result, TableError},
     tables::tables::{Table, TypeCol},

@@ -11,7 +11,6 @@ use crate::{
     database::{
         btree::TreeNode,
         pager::{diskpager::NodeFlag, freelist::FLNode},
-        tables::keyvalues::DataCellRef,
     },
     interpreter::ValueObject,
 };
@@ -255,6 +254,29 @@ impl InputData for u8 {
     }
 }
 
+#[derive(PartialEq, PartialOrd)]
+pub enum DataCellRef<'a> {
+    Int(i64),
+    Str(&'a str),
+}
+
+impl<'a> From<&'a DataCell> for DataCellRef<'a> {
+    fn from(value: &'a DataCell) -> Self {
+        match value {
+            DataCell::Str(s) => DataCellRef::Str(s),
+            DataCell::Int(i) => DataCellRef::Int(*i),
+        }
+    }
+}
+
+impl<'a> From<&'a ValueObject> for DataCellRef<'a> {
+    fn from(value: &'a ValueObject) -> Self {
+        match value {
+            ValueObject::Str(s) => DataCellRef::Str(s),
+            ValueObject::Int(i) => DataCellRef::Int(*i),
+        }
+    }
+}
 use crate::interpreter::StatementInterface;
 
 pub struct LimitIter<I> {

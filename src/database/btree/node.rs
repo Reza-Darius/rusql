@@ -6,6 +6,7 @@ use super::tree::SetFlag;
 use crate::database::btree::BTree;
 use crate::database::btree::tree::SetResponse;
 use crate::database::pager::diskpager::Pager;
+use crate::database::tables::keyvalues::KeyRef;
 use crate::database::tables::{Key, Value};
 use crate::database::types::{Node, PTR_SIZE, U16_SIZE};
 use crate::database::{
@@ -246,6 +247,25 @@ impl TreeNode {
         Ok(Key::from_encoded_slice(slice))
     }
 
+    pub fn get_key_ref(&self, idx: u16) -> Result<KeyRef<'_>, Error> {
+        if idx >= self.get_nkeys() {
+            error!(
+                "get_key: index {} out of key range {}",
+                idx,
+                self.get_nkeys()
+            );
+            return Err(Error::IndexError);
+        };
+        let kvpos = self.kv_pos(idx)?;
+        let key_len = self.as_offset_slice(kvpos).read_u16() as usize;
+
+        let offset = kvpos + KEY_LEN_OFFSET + VAL_LEN_OFFSET;
+        let slice = &self.0[offset..offset + key_len];
+        let key_ref = KeyRef::from_slice(slice);
+        debug!("returning {key_ref}");
+        Ok(key_ref)
+    }
+
     pub fn get_val(&self, idx: u16) -> Result<Value, Error> {
         if let NodeType::Node = self.get_type() {
             return Ok(Value::from_unencoded_str(" "));
@@ -318,7 +338,7 @@ impl TreeNode {
             self.kvptr_append(
                 dst_idx + i,
                 src.get_ptr(src_idx + i),
-                src.get_key(src_idx + i)?,
+                src.get_key(src_idx + i)?.to_owned(),
                 src.get_val(src_idx + i)?,
             )?;
         }
@@ -333,7 +353,7 @@ impl TreeNode {
         if nkeys == 0 || nkeys == 1 {
             return 0;
         }
-        if let Some(n) = super::cursor::cmp_le(self, key) {
+        if let Some(n) = super::bs::lookup_le(self, key) {
             n
         } else {
             0

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use tracing::{debug, instrument};
+use super::bs::*;
+use tracing::{debug, error, instrument};
 
 use crate::{
     database::{
@@ -8,7 +9,7 @@ use crate::{
         btree::{Tree, TreeNode, node::NodeType},
         errors::{Result, ScanError},
         pager::diskpager::Pager,
-        tables::{Key, Record, Value},
+        tables::{Key, Record, Value, keyvalues::KeyRef},
         types::Node,
     },
     debug_if_env,
@@ -18,7 +19,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub(crate) enum ScanMode {
     // scanning the entire table starting from key
-    Open(Key, Compare),
+    Open(Key, Compare, CursorDir),
     // scans table within range
     Range {
         lo: (Key, Compare),
@@ -28,6 +29,7 @@ pub(crate) enum ScanMode {
 
 pub(crate) struct PrefixScanIter<'a, P: Pager> {
     cursor: Cursor<'a, P>,
+    pred: Compare,
     key: Key,
     tid: u32,
     finished: bool,
@@ -48,35 +50,104 @@ impl<'a, P: Pager> Iterator for PrefixScanIter<'a, P> {
         }
         let (k, v) = self.cursor.next()?;
 
-        if !is_subkey(&self.key, &k) {
+        debug_if_env!("RUSQL_LOG_CURSOR", {
+            debug!(key=%k, pred=?self.pred, cmp=%self.key, "comparing prefix");
+        });
+
+        if !prefix_cmp(&k, self.pred, &self.key) {
+            debug_if_env!("RUSQL_LOG_CURSOR", {
+                debug!("false, returning none");
+            });
             self.finished = true;
             return None;
         }
+
+        debug_if_env!("RUSQL_LOG_CURSOR", {
+            debug!("true, returning {k}");
+        });
+
         Some((k, v))
     }
 }
 
+/// is key a a sub key of b?
+///```ignore
+/// let key_a = "0 1 Alice";
+/// let key_b = "0 1 Alice Firefighter"
+/// assert!(is_subkey(&key_a, &key_b))
+///```
+fn is_subkey(a: &Key, b: &Key) -> bool {
+    let len = a.len();
+    debug_if_env!("RUSQL_LOG_CURSOR", {
+        debug!(%a, %b, "comparing subkeys");
+    });
+    if a.as_slice() == &b.as_slice()[..len] {
+        true
+    } else {
+        false
+    }
+}
+
+// equalized the length of both keys to the shortest key then compares
+pub fn prefix_cmp<'a, K1: Into<KeyRef<'a>>, K2: Into<KeyRef<'a>>>(
+    k1: K1,
+    pred: Compare,
+    k2: K2,
+) -> bool {
+    let k1 = k1.into();
+    let k2 = k2.into();
+
+    let trunc_len = usize::min(k1.len(), k2.len());
+
+    let k1 = KeyRef::from_slice(&k1.as_slice()[..trunc_len]);
+    let k2 = KeyRef::from_slice(&k2.as_slice()[..trunc_len]);
+
+    match pred {
+        Compare::Lt => k1 < k2,
+        Compare::Le => k1 <= k2,
+        Compare::Gt => k1 > k2,
+        Compare::Ge => k1 >= k2,
+        Compare::Eq => k1 == k2,
+    }
+}
+
 impl ScanMode {
-    /// returns matching partial keys, useful for secondary indices
+    /// returns key matching the predicate as a prefix, meaning keys get truncated to length
+    ///
+    /// seek uses non-prefix GE
+    ///
     ///```ignore
     /// let key = "1 0 Alice"
-    /// let prefixscan = ScanMode::prefix(key, &tree)?;
+    /// let prefixscan = ScanMode::prefix(key, &tree, Compare::Eq)?;
     /// assert_eq!(prefixscan.next(), "1 0 Alice Clerk");
     /// assert_eq!(prefixscan.next(), "1 0 Alice Firefighter");
     /// assert_eq!(prefixscan.next(), "1 0 Alice Policewoman");
     ///```
     /// This Scan is eagerly evaluated!
-    pub fn prefix<P: Pager>(key: Key, tree: &BTree<P>) -> Result<PrefixScanIter<'_, P>> {
-        if key.len() == 0 {
-            return Err(
-                ScanError::ScanCreateError("invalid input: key is empty".to_string()).into(),
-            );
+    pub fn prefix<P: Pager>(
+        key: Key,
+        tree: &BTree<P>,
+        pred: Compare,
+    ) -> Result<PrefixScanIter<'_, P>> {
+        if key.len() == 0 || key.is_sentinal_empty() {
+            return Err(ScanError::ScanCreateError(
+                "couldnt create prefix iter: key is empty".to_string(),
+            )
+            .into());
+        }
+
+        if tree.is_empty() {
+            return Err(ScanError::ScanCreateError(
+                "couldnt create prefix iter: tree is empty".to_string(),
+            )
+            .into());
         }
         let tid = key.get_tid();
 
-        if let Some(cursor) = seek(tree, &key, SeekConfig::Prefix) {
+        if let Some(cursor) = seek(tree, &key, SeekConfig::Prefix(pred)) {
             Ok(PrefixScanIter {
                 cursor,
+                pred,
                 key,
                 tid,
                 finished: false,
@@ -85,6 +156,7 @@ impl ScanMode {
             // we return an empty iterator
             Ok(PrefixScanIter {
                 cursor: Cursor::new(tree),
+                pred,
                 key,
                 tid,
                 finished: true,
@@ -103,8 +175,8 @@ impl ScanMode {
     /// if the key is 10 and predicate is "GT" it will match and return keys: 11,12,13 etc
     ///
     /// ScanMode is lazy, and wont yield anything until [`ScanMode::into_iter`] is called, which then performs read operations
-    pub fn open(key: Key, pred: Compare) -> Result<Self> {
-        Ok(ScanMode::Open(key, pred))
+    pub fn open(key: Key, pred: Compare, dir: CursorDir) -> Result<Self> {
+        Ok(ScanMode::Open(key, pred, dir))
     }
 
     /// scans a range between two keys, start position is the the key that matches lo on the predicate.
@@ -115,12 +187,14 @@ impl ScanMode {
     pub fn range(lo: (Key, Compare), hi: (Key, Compare)) -> Result<Self> {
         let tid = lo.0.get_tid();
         if tid != hi.0.get_tid() {
+            error!("invalid input: keys from different tables provided");
             return Err(ScanError::ScanCreateError(
                 "invalid input: keys from different tables provided".to_string(),
             )
             .into());
         }
         if lo.0 > hi.0 {
+            error!("invalid input: low point exceeds high point");
             return Err(ScanError::ScanCreateError(
                 "invalid input: low point exceeds high point".to_string(),
             )
@@ -130,30 +204,51 @@ impl ScanMode {
     }
 
     /// turns scanmode into iterator by performing tree read operations
-    pub fn into_iter<'a, P: Pager>(self, tree: &'a BTree<P>) -> Option<ScanIter<'a, P>> {
+    pub fn into_iter<'a, P: Pager>(self, tree: &'a BTree<P>) -> ScanIter<'a, P> {
         match self {
-            ScanMode::Open(key, pred) => {
-                let dir = match pred {
-                    Compare::Lt | Compare::Le => CursorDir::Prev,
-                    Compare::Gt | Compare::Ge | Compare::Eq => CursorDir::Next,
-                };
-                Some(ScanIter {
-                    cursor: seek(tree, &key, SeekConfig::Pred(pred))?,
-                    tid: key.get_tid(),
-                    dir,
-                    mode: ScanIterMode::Open(key, pred),
-                    finished: false,
-                })
+            ScanMode::Open(key, pred, dir) => {
+                // let dir = match pred {
+                //     Compare::Lt | Compare::Le => CursorDir::Prev,
+                //     Compare::Gt | Compare::Ge | Compare::Eq => CursorDir::Next,
+                // };
+                let tid = key.get_tid();
+                if let Some(cursor) = seek(tree, &key, SeekConfig::Pred(pred)) {
+                    ScanIter {
+                        cursor,
+                        tid,
+                        dir,
+                        mode: ScanIterMode::Open(key, pred),
+                        finished: false,
+                    }
+                } else {
+                    ScanIter {
+                        cursor: Cursor::new(tree),
+                        tid,
+                        dir,
+                        mode: ScanIterMode::Open(key, pred),
+                        finished: true,
+                    }
+                }
             }
             ScanMode::Range { lo, hi } => {
                 let tid = lo.0.get_tid();
-                Some(ScanIter {
-                    cursor: seek(tree, &lo.0, SeekConfig::Pred(lo.1))?,
-                    tid,
-                    dir: CursorDir::Next,
-                    mode: ScanIterMode::Range(hi.0, hi.1),
-                    finished: false,
-                })
+                if let Some(cursor) = seek(tree, &lo.0, SeekConfig::Pred(lo.1)) {
+                    ScanIter {
+                        cursor,
+                        tid,
+                        dir: CursorDir::Next,
+                        mode: ScanIterMode::Range(hi.0, hi.1),
+                        finished: false,
+                    }
+                } else {
+                    ScanIter {
+                        cursor: Cursor::new(tree),
+                        tid,
+                        dir: CursorDir::Next,
+                        mode: ScanIterMode::Range(hi.0, hi.1),
+                        finished: true,
+                    }
+                }
             }
         }
     }
@@ -207,20 +302,36 @@ impl<'a, P: Pager> Iterator for ScanIter<'a, P> {
                 let (k, v) = self.cursor.next()?;
 
                 debug_if_env!("RUSQL_LOG_CURSOR", {
-                    debug!(key=%k, hi=%hi_key, pred=?hi_cmp, "comparing");
+                    debug!(key=%k, pred=?hi_cmp, hi=%hi_key, "comparing");
                 });
 
+                assert!(hi_key.len() <= k.len());
+                let k_trunc = KeyRef::from_slice(&k.as_slice()[..hi_key.len()]); // truncating both keys to the same length
+
                 // we return as soon as the key matches the high key predicate
-                if key_cmp(&k, &hi_key, *hi_cmp) {
+                if key_cmp(k_trunc, hi_key, *hi_cmp) {
                     debug_if_env!("RUSQL_LOG_CURSOR", {
-                        debug!("finished");
+                        debug!("true, finished");
                     });
                     self.finished = true;
                     return None;
                 }
 
+                // debug_if_env!("RUSQL_LOG_CURSOR", {
+                //     debug!(hi=%hi_key, pred=?hi_cmp, key=%k, "comparing");
+                // });
+
+                // // we return as soon as the key matches the high key predicate
+                // if key_cmp(&hi_key, &k, *hi_cmp) {
+                //     debug_if_env!("RUSQL_LOG_CURSOR", {
+                //         debug!("true, finished");
+                //     });
+                //     self.finished = true;
+                //     return None;
+                // }
+
                 debug_if_env!("RUSQL_LOG_CURSOR", {
-                    debug!("found");
+                    debug!("false, returning {k} {v}");
                 });
 
                 Some((k, v))
@@ -231,20 +342,31 @@ impl<'a, P: Pager> Iterator for ScanIter<'a, P> {
                     CursorDir::Next => self.cursor.next()?,
                     CursorDir::Prev => self.cursor.prev()?,
                 };
+
+                debug_if_env!("RUSQL_LOG_CURSOR", {
+                    debug!(key=%k, pred=?pred, hi=%cmp_key, "comparing");
+                });
+
                 if k.get_tid() != self.tid {
-                    // return as soon as we see a key belonging to a different table
+                    // return as soon as we see a key belonging to a different table or index
                     self.finished = true;
                     return None;
                 };
 
                 // we return as soon as the key doesnt match the predicate anymore
-                if !key_cmp(&k, &cmp_key, *pred) {
+                if !key_cmp(&k, cmp_key, *pred) {
                     debug_if_env!("RUSQL_LOG_CURSOR", {
-                        debug!("finished");
+                        debug!("false, finished");
                     });
+
                     self.finished = true;
                     return None;
                 }
+
+                debug_if_env!("RUSQL_LOG_CURSOR", {
+                    debug!("true, returning");
+                });
+
                 Some((k, v))
             }
         }
@@ -362,13 +484,16 @@ impl<'a, P: Pager> Cursor<'a, P> {
 fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option<Cursor<'a, P>> {
     let mut cursor = Cursor::new(tree);
     let mut ptr = tree.get_root();
-
+    debug_if_env!("RUSQL_LOG_CURSOR", {
+        debug!("seeking for key: {key}, with {flag:?}");
+    });
     while let Some(p) = ptr {
         let node = tree.decode(p);
 
         ptr = match node.unwrap_tn().get_type() {
             NodeType::Node => {
                 let idx = node_lookup(node.unwrap_tn(), &key, &SeekConfig::Pred(Compare::Le))?; // navigating nodes
+                debug!(idx, "internal node lookup:");
                 let ptr = node.unwrap_tn().get_ptr(idx);
 
                 cursor.path.push(node);
@@ -402,7 +527,9 @@ fn seek<'a, P: Pager>(tree: &'a BTree<P>, key: &Key, flag: SeekConfig) -> Option
     Some(cursor)
 }
 
-fn key_cmp(k1: &Key, k2: &Key, pred: Compare) -> bool {
+fn key_cmp<'a, K1: Into<KeyRef<'a>>, K2: Into<KeyRef<'a>>>(k1: K1, k2: K2, pred: Compare) -> bool {
+    let k1 = k1.into();
+    let k2 = k2.into();
     match pred {
         Compare::Lt => k1 < k2,
         Compare::Le => k1 <= k2,
@@ -417,30 +544,43 @@ fn node_lookup(node: &TreeNode, key: &Key, flag: &SeekConfig) -> Option<u16> {
         return None;
     }
     match flag {
-        SeekConfig::Pred(p) => match p {
-            Compare::Lt => cmp_lt(node, key),
-            Compare::Le => cmp_le(node, key),
-            Compare::Gt => cmp_gt(node, key),
-            Compare::Ge => cmp_ge(node, key),
-            Compare::Eq => cmp_eq(node, key),
-        },
-        SeekConfig::Prefix => {
-            let idx = cmp_ge(node, key)?;
-            let cmp_key = node.get_key(idx).ok()?; // we just compared against it
-            let len = key.len();
+        SeekConfig::Pred(p) => {
+            debug!("pred compare: {p:?}");
+            match p {
+                Compare::Lt => lookup_lt(node, key),
+                Compare::Le => lookup_le(node, key),
+                Compare::Gt => lookup_gt(node, key),
+                Compare::Ge => lookup_ge(node, key),
+                Compare::Eq => lookup_eq(node, key),
+            }
+        }
+        SeekConfig::Prefix(p) => {
+            // let idx = cmp_ge(node, key)?;
+            // let cmp_key = node.get_key(idx).ok()?; // we just compared against it
+            // let len = key.len();
 
-            if is_subkey(&key, &cmp_key) {
-                Some(idx)
-            } else {
-                None
+            // if is_subkey(&key, &cmp_key) {
+            //     Some(idx)
+            // } else {
+            //     None
+            // }
+
+            debug!("prefix compare: {p:?}");
+            match p {
+                Compare::Lt => lookup_lt(node, key),
+                Compare::Le => lookup_le(node, key),
+                Compare::Gt => lookup_gt(node, key),
+                Compare::Ge => lookup_ge(node, key),
+                Compare::Eq => lookup_ge(node, key), // we cannot seek on EQ for prefix
             }
         }
     }
 }
 
+#[derive(Debug)]
 enum SeekConfig {
     Pred(Compare),
-    Prefix,
+    Prefix(Compare),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -462,183 +602,6 @@ impl From<Operator> for Compare {
             Operator::Ge => Compare::Ge,
             _ => unreachable!("invalid compare operator for conversion"),
         }
-    }
-}
-
-fn cmp_lt(node: &TreeNode, key: &Key) -> Option<u16> {
-    let nkeys = node.get_nkeys();
-    let mut lo: u16 = 0;
-    let mut hi: u16 = nkeys;
-
-    #[cfg(test)]
-    {
-        if let Ok("debug") = std::env::var("RUSQL_LOG_CMP").as_deref() {
-            debug!(
-                "cmp_lt, key: {} in {:?} nkeys {}",
-                key,
-                node.get_type(),
-                nkeys
-            );
-        }
-    }
-
-    while hi > lo {
-        let m = (hi + lo) / 2;
-        let v = node.get_key(m).ok()?;
-        // if v == *key {
-        //     return None; // key already exists
-        // };
-        if v >= *key {
-            // changed to larger equal
-            hi = m;
-        } else {
-            lo = m + 1;
-        }
-    }
-    if lo == 0 { None } else { Some(lo - 1) }
-}
-
-pub(super) fn cmp_le(node: &TreeNode, key: &Key) -> Option<u16> {
-    let nkeys = node.get_nkeys();
-    let mut lo: u16 = 0;
-    let mut hi: u16 = nkeys;
-
-    #[cfg(test)]
-    {
-        if let Ok("debug") = std::env::var("RUSQL_LOG_CMP").as_deref() {
-            debug!(
-                "cmp_le, key: {} in {:?} nkeys {}",
-                key,
-                node.get_type(),
-                nkeys
-            );
-        }
-    }
-
-    while hi > lo {
-        let m = (hi + lo) / 2; // mid point
-        let v = node.get_key(m).ok()?; // key at m
-
-        if v == *key {
-            return Some(m as u16);
-        };
-        if v > *key {
-            hi = m;
-        } else {
-            lo = m + 1;
-        }
-    }
-    if lo == 0 { Some(0) } else { Some(lo - 1) }
-}
-
-fn cmp_gt(node: &TreeNode, key: &Key) -> Option<u16> {
-    let nkeys = node.get_nkeys();
-    let mut lo: u16 = 0;
-    let mut hi: u16 = nkeys;
-
-    #[cfg(test)]
-    {
-        if let Ok("debug") = std::env::var("RUSQL_LOG_CMP").as_deref() {
-            debug!(
-                "cmp_gt, key: {} in {:?} nkeys {}",
-                key,
-                node.get_type(),
-                nkeys
-            );
-        }
-    }
-
-    while hi > lo {
-        let m = (hi + lo) / 2; // mid point
-        let v = node.get_key(m).ok()?; // key at m
-
-        if v > *key {
-            hi = m;
-        } else {
-            lo = m + 1;
-        }
-    }
-    if lo == nkeys { None } else { Some(lo) }
-}
-
-fn cmp_ge(node: &TreeNode, key: &Key) -> Option<u16> {
-    let nkeys = node.get_nkeys();
-    let mut lo: u16 = 0;
-    let mut hi: u16 = nkeys;
-
-    #[cfg(test)]
-    {
-        if let Ok("debug") = std::env::var("RUSQL_LOG_CMP").as_deref() {
-            debug!(
-                "cmp_ge, key: {} in {:?} nkeys {}",
-                key,
-                node.get_type(),
-                nkeys
-            );
-        }
-    }
-
-    while hi > lo {
-        let m = (hi + lo) / 2; // mid point
-        let v = node.get_key(m).ok()?; // key at m
-
-        if v == *key {
-            return Some(m as u16);
-        };
-        if v > *key {
-            hi = m;
-        } else {
-            lo = m + 1;
-        }
-    }
-    if lo == nkeys { None } else { Some(lo) }
-}
-
-fn cmp_eq(node: &TreeNode, key: &Key) -> Option<u16> {
-    let nkeys = node.get_nkeys();
-    let mut lo: u16 = 0;
-    let mut hi: u16 = nkeys;
-
-    #[cfg(test)]
-    {
-        if let Ok("debug") = std::env::var("RUSQL_LOG_CMP").as_deref() {
-            debug!(
-                "cmp_eq, key: {} in {:?} nkeys {}",
-                key,
-                node.get_type(),
-                nkeys
-            );
-        }
-    }
-
-    while hi > lo {
-        let m = (hi + lo) / 2; // mid point
-        let v = node.get_key(m).ok()?; // key at m
-
-        if v == *key {
-            return Some(m as u16);
-        };
-        if v > *key {
-            hi = m;
-        } else {
-            lo = m + 1;
-        }
-    }
-    None
-}
-
-/// is key a a sub key of b?
-///```ignore
-/// let key_a = "0 1 Alice";
-/// let key_b = "0 1 Alice Firefighter"
-/// assert!(is_subkey(&key_a, &key_b))
-///```
-fn is_subkey(a: &Key, b: &Key) -> bool {
-    let len = a.len();
-    if a.as_slice() == &b.as_slice()[..len] {
-        true
-    } else {
-        false
     }
 }
 
@@ -688,7 +651,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::Gt);
+        let q = ScanMode::Open(key, Compare::Gt, CursorDir::Next);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -811,7 +774,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::Gt);
+        let q = ScanMode::Open(key, Compare::Gt, CursorDir::Next);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -835,7 +798,7 @@ mod test {
         }
 
         let key = 5i64.into();
-        let q = ScanMode::Open(key, Compare::Ge);
+        let q = ScanMode::Open(key, Compare::Ge, CursorDir::Next);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -858,7 +821,7 @@ mod test {
         }
 
         let key = 6i64.into();
-        let q = ScanMode::Open(key, Compare::Lt);
+        let q = ScanMode::Open(key, Compare::Lt, CursorDir::Prev);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -882,7 +845,7 @@ mod test {
         }
 
         let key = 6i64.into();
-        let q = ScanMode::Open(key, Compare::Le);
+        let q = ScanMode::Open(key, Compare::Le, CursorDir::Prev);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -905,7 +868,7 @@ mod test {
         }
 
         let key = 1i64.into();
-        let q = ScanMode::Open(key, Compare::Ge);
+        let q = ScanMode::Open(key, Compare::Ge, CursorDir::Next);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -924,7 +887,7 @@ mod test {
         }
 
         let key = 10i64.into();
-        let q = ScanMode::Open(key, Compare::Le);
+        let q = ScanMode::Open(key, Compare::Le, CursorDir::Prev);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -946,17 +909,17 @@ mod test {
 
         // GT from last element
         let key = 10i64.into();
-        let q = ScanMode::Open(key, Compare::Gt);
-        let res = tree_ref.scan(q);
+        let q = ScanMode::Open(key, Compare::Gt, CursorDir::Next);
+        let mut res = tree_ref.scan(q)?;
 
-        assert!(res.is_err());
+        assert!(res.next().is_none());
 
         // LT from first element
         let key = 1i64.into();
-        let q = ScanMode::Open(key, Compare::Lt);
-        let res = tree_ref.scan(q);
+        let q = ScanMode::Open(key, Compare::Lt, CursorDir::Prev);
+        let mut res = tree_ref.scan(q)?;
 
-        assert!(res.is_err());
+        assert!(res.next().is_none());
 
         Ok(())
     }
@@ -971,7 +934,7 @@ mod test {
         }
 
         let key = 500i64.into();
-        let q = ScanMode::Open(key, Compare::Gt);
+        let q = ScanMode::Open(key, Compare::Gt, CursorDir::Next);
         let tree_ref = tree.pager.tree.borrow();
         let res = tree_ref.scan(q);
 
@@ -1037,7 +1000,7 @@ mod test {
 
         assert!(res.is_none());
 
-        let q = ScanMode::Open(1i64.into(), Compare::Gt);
+        let q = ScanMode::Open(1i64.into(), Compare::Gt, CursorDir::Next);
         let res = tree_ref.scan(q);
 
         assert!(res.is_err());
@@ -1058,15 +1021,14 @@ mod test {
         assert_eq!(res.unwrap().len(), 1);
 
         // Scan GT (should return none)
-        let q = ScanMode::Open(1i64.into(), Compare::Gt);
-        let res = tree_ref.scan(q);
-        assert!(res.is_err());
+        let q = ScanMode::Open(1i64.into(), Compare::Gt, CursorDir::Next);
+        let mut res = tree_ref.scan(q)?;
+        assert!(res.next().is_none());
 
         // Scan GE (should return the element)
-        let q = ScanMode::Open(1i64.into(), Compare::Ge);
-        let res = tree_ref.scan(q);
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap().count(), 1);
+        let q = ScanMode::Open(1i64.into(), Compare::Ge, CursorDir::Next);
+        let res = tree_ref.scan(q)?;
+        assert_eq!(res.count(), 1);
 
         Ok(())
     }
@@ -1098,9 +1060,7 @@ mod test {
         let tree_ref = tree.pager.tree.borrow();
         let res = ScanMode::range((k_lo, Compare::Ge), (k_hi, Compare::Gt))?.into_iter(&*tree_ref);
 
-        assert!(res.is_some());
-
-        let mut recs = res.unwrap().collect_records().into_iter();
+        let mut recs = res.collect_records().into_iter();
 
         assert_eq!(recs.next().unwrap().to_string(), "table 1 1 value");
         assert_eq!(recs.next().unwrap().to_string(), "table 1 2 value");

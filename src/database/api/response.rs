@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     database::{
-        tables::{Record, keyvalues::DataCellRef, tables::Table},
+        tables::{Record, tables::Table},
         types::DataCell,
     },
     interpreter::{SelectStatement, StatementColumns},

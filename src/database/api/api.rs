@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info};
 
 use crate::database::api::response::{DBResponse, FilteredRecord};
-use crate::database::btree::ScanMode;
+use crate::database::btree::{Compare, ScanMode};
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::tables::tables::{Table, TableIndex};
@@ -92,21 +92,16 @@ fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Ve
     };
 
     // do we have an index for the WHERE columns?
-    if let Some((table_index, stmt_index)) = find_index(table, &where_col_map) {
+    if let Some((table_idx, stmt_idx)) = find_index(table, &where_col_map) {
+        debug!(?table_idx, ?stmt_idx, "index for WHERE clause");
+
         // query the database
-        let key = Query::by_index(table, table_index)
-            .add(stmt_index.expr.clone())
-            .encode()?;
-        let scan = ScanMode::open(key, stmt_index.operator.into())?;
+        let scan = get_scan(table, table_idx, stmt_idx)?;
 
         // filter results against non-indexed WHERE clauses
         let iter = scan
             .into_iter(&tx.tree)
-            .ok_or_else(|| {
-                error!("failed to create iterator");
-                ExecError::ExecutionError("failed to create iterator")
-            })?
-            .filter_map(|(k, v)| Record::decode_with_index(k, v, table_index, table).ok()) // reorder into primary row layout
+            .filter_map(|(k, v)| Record::decode_with_index(k, v, table_idx, table).ok()) // reorder into primary row layout
             .filter(|rec| filter_record(rec, &where_col_map));
 
         // filter against possible select columns
@@ -185,6 +180,33 @@ fn validate_select_columns<T: AsRef<str> + std::fmt::Debug>(
     Ok(col_indices)
 }
 
+fn get_scan(table: &Table, table_idx: &TableIndex, stmt_idx: &StatementIndex) -> Result<ScanMode> {
+    let key = Query::by_index(table, table_idx)
+        .add(stmt_idx.expr.clone())
+        .encode()?;
+
+    debug!(key=%key, "scanning with key");
+
+    let scan = match stmt_idx.operator {
+        Operator::Assign | Operator::Equal => {
+            ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
+        }
+        Operator::Lt => ScanMode::range((key.clone(), Compare::Lt), (key.clone(), Compare::Ge))?,
+        Operator::Le => ScanMode::range((key.clone(), Compare::Le), (key.clone(), Compare::Gt))?,
+
+        Operator::Gt => ScanMode::range((key.clone(), Compare::Gt), (key.clone(), Compare::Le))?,
+        Operator::Ge => ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?,
+        // Operator::Assign | Operator::Equal => ScanMode::open(key, Compare::Ge)?,
+        // Operator::Lt => ScanMode::open(key, Compare::Lt)?,
+        // Operator::Le => ScanMode::open(key, Compare::Le)?,
+        // Operator::Gt => ScanMode::open(key, Compare::Gt)?,
+        // Operator::Ge => ScanMode::open(key, Compare::Ge)?,
+        _ => unreachable!("invalid operator were already filtered out"),
+    };
+
+    Ok(scan)
+}
+
 /// finds an index for the provided column map, used in WHERE clauses
 ///
 /// returns the first matching index found, does not support multi key indices as of yet
@@ -212,14 +234,17 @@ fn find_index<'a, 'b>(
 /// a record needs to be in the primary row layout
 fn filter_record<'a>(record: &'a Record, col_map: &HashMap<usize, &StatementIndex>) -> bool {
     for (col, index) in col_map {
-        let data = record[*col].as_ref(); // converting to comparable types without reallocting
+        // converting to comparable types without reallocting
+        let data = record[*col].as_ref();
+        let idx_expr = (&index.expr).into();
+
         if !match index.operator {
-            Operator::Assign => data == (&index.expr).into(),
-            Operator::Equal => data == (&index.expr).into(),
-            Operator::Lt => data < (&index.expr).into(),
-            Operator::Le => data <= (&index.expr).into(),
-            Operator::Gt => data > (&index.expr).into(),
-            Operator::Ge => data >= (&index.expr).into(),
+            Operator::Assign => data == idx_expr,
+            Operator::Equal => data == idx_expr,
+            Operator::Lt => data < idx_expr,
+            Operator::Le => data <= idx_expr,
+            Operator::Gt => data > idx_expr,
+            Operator::Ge => data >= idx_expr,
             _ => unreachable!("invalid operator are already filtered out"),
         } {
             return false;
@@ -246,7 +271,7 @@ fn select_columns(
                 debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
 
                 let key = Query::by_tid_prefix(table, index.prefix);
-                let res: Vec<FilteredRecord> = ScanMode::prefix(key, &tx.tree)?
+                let res: Vec<FilteredRecord> = ScanMode::prefix(key, &tx.tree, Compare::Eq)?
                     .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok()) // reorder into primary row layout
                     .map(|record| filter_columns(record, col_indices.as_slice()))
                     .limit(stmt)
@@ -319,9 +344,7 @@ mod execute_test {
     use super::*;
     use test_log::test;
 
-    #[test]
-    fn select_exec_positive1() -> Result<()> {
-        let path = "test-files/exec_select_stmt1.rdb";
+    fn test_data_single_index1(path: &'static str) -> Result<Database> {
         cleanup_file(path);
         let db = Database::new(path);
         let mut tx = db.db.begin(&db.db, TXKind::Write);
@@ -346,6 +369,58 @@ mod execute_test {
             tx.insert_rec(entry, &table, SetFlag::UPSERT)?;
         }
         db.db.commit(tx)?;
+        Ok(db)
+    }
+
+    fn test_data_multiple_index1(path: &'static str) -> Result<Database> {
+        cleanup_file(path);
+        let db = Database::new(path);
+        let mut tx = db.db.begin(&db.db, TXKind::Write);
+
+        let mut table = TableBuilder::new()
+            .id(3)
+            .name("mytable")
+            .add_col("id", TypeCol::INTEGER)
+            .add_col("name", TypeCol::BYTES)
+            .add_col("age", TypeCol::INTEGER)
+            .add_col("job", TypeCol::BYTES)
+            .pkey(1)
+            .build(&mut tx)?;
+
+        tx.insert_table(&table)?;
+
+        let mut entries = vec![];
+        entries.push(Record::new().add(1).add("Alice").add(20).add("clerk"));
+        entries.push(Record::new().add(2).add("Bob").add(20).add("student"));
+        entries.push(
+            Record::new()
+                .add(3)
+                .add("Charlie")
+                .add(20)
+                .add("firefighter"),
+        );
+        entries.push(Record::new().add(4).add("Rob").add(18).add("programmer"));
+        entries.push(Record::new().add(5).add("Jane").add(25).add("artist"));
+
+        let num_entries = entries.len();
+        for entry in entries {
+            tx.insert_rec(entry, &table, SetFlag::UPSERT)?;
+        }
+
+        let modified = tx.create_index("job", "job", &mut table)?;
+        assert_eq!(modified as usize, num_entries);
+
+        let modified = tx.create_index("age", "age", &mut table)?;
+        assert_eq!(modified as usize, num_entries);
+
+        db.db.commit(tx)?;
+        Ok(db)
+    }
+
+    #[test]
+    fn select_exec_positive1() -> Result<()> {
+        let path = "test-files/exec_select_stmt1.rdb";
+        let db = test_data_single_index1(path)?;
 
         let query = "SELECT * FROM mytable LIMIT 2;";
         let mut stmt = Parser::parse(query)?;
@@ -423,34 +498,87 @@ mod execute_test {
     }
 
     #[test]
+    fn select_exec_positive2() -> Result<()> {
+        let path = "test-files/exec_select_stmt2.rdb";
+        let db = test_data_multiple_index1(path)?;
+
+        let query = r#"SELECT * FROM mytable WHERE job = "clerk";"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][1], "Alice");
+        assert_eq!(&rows[0][2], "20");
+        assert_eq!(&rows[0][3], "clerk");
+
+        println!("{query}\n{}", res.unwrap());
+
+        let query = r#"SELECT * FROM mytable WHERE age >= 20, job = "clerk";"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][1], "Alice");
+        assert_eq!(&rows[0][2], "20");
+        assert_eq!(&rows[0][3], "clerk");
+
+        println!("{query}\n{}", res.unwrap());
+
+        let query = r#"SELECT * FROM mytable WHERE age > 15;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 5);
+
+        let query = r#"SELECT * FROM mytable WHERE age < 20;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+
+        let query = r#"SELECT * FROM mytable WHERE age > 20;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+
+        let query = r#"SELECT * FROM mytable WHERE age >= 20;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 4);
+
+        let query = r#"SELECT * FROM mytable WHERE age <= 20;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 4);
+
+        cleanup_file(path);
+        Ok(())
+    }
+
+    #[test]
     fn select_exec_negative1() -> Result<()> {
         let path = "test-files/exec_select_stmt2.rdb";
-        cleanup_file(path);
-        let db = Database::new(path);
-        let mut tx = db.db.begin(&db.db, TXKind::Write);
+        let db = test_data_single_index1(path)?;
 
-        let table = TableBuilder::new()
-            .id(3)
-            .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("id", TypeCol::INTEGER)
-            .pkey(1)
-            .build(&mut tx)?;
-
-        tx.insert_table(&table)?;
-
-        let mut entries = vec![];
-        entries.push(Record::new().add("Alice").add(20).add(1));
-        entries.push(Record::new().add("Bob").add(15).add(2));
-        entries.push(Record::new().add("Charlie").add(25).add(3));
-
-        for entry in entries {
-            tx.insert_rec(entry, &table, SetFlag::UPSERT)?;
-        }
-        db.db.commit(tx)?;
-
-        // negative cases
         let query = "SELECT age FROM mytable WHERE id = 9999;";
         let mut stmt = Parser::parse(query)?;
 
@@ -459,6 +587,12 @@ mod execute_test {
         assert_eq!(res.unwrap().len(), 0);
 
         let query = "SELECT asdfgsd FROM mytable WHERE id = 3;";
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_err());
+
+        let query = "SELECT * FROM mytable WHERE doesnt_exist = 3;";
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0));

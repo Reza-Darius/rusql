@@ -7,8 +7,8 @@ use tracing::debug;
 use crate::database::codec::*;
 use crate::database::tables::tables::TypeCol;
 use crate::database::types::DataCell;
+use crate::database::types::DataCellRef;
 use crate::debug_if_env;
-use crate::interpreter::ValueObject;
 
 // encoded and parsed key for the pager, should only be created from encoding a record
 //
@@ -32,8 +32,8 @@ impl Key {
         e == *self.0
     }
 
-    pub fn iter(&self) -> KeyIterRef<'_> {
-        KeyIterRef {
+    pub fn iter(&self) -> KeyRefIter<'_> {
+        KeyRefIter {
             data: &self.0,
             count: TID_LEN + PREFIX_LEN,
         }
@@ -118,14 +118,26 @@ impl From<i64> for Key {
 
 impl std::fmt::Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.len();
         write!(f, "{}", self.get_tid())?;
+
+        if len == TID_LEN {
+            return Ok(());
+        }
+
         write!(f, " {}", self.get_prefix())?;
+
+        if len == TID_LEN + PREFIX_LEN {
+            return Ok(());
+        }
+
         for cell in self.iter() {
             match cell {
                 DataCellRef::Str(s) => write!(f, " {}", s)?,
                 DataCellRef::Int(i) => write!(f, " {}", i)?,
             };
         }
+
         Ok(())
     }
 }
@@ -143,6 +155,18 @@ impl PartialOrd<Key> for Key {
         Some(self.cmp(other))
     }
 }
+
+// impl PartialEq<KeyRef<'_>> for Key {
+//     fn eq(&self, other: &KeyRef<'_>) -> bool {
+//         todo!()
+//     }
+// }
+
+// impl PartialOrd<KeyRef<'_>> for Key {
+//     fn partial_cmp(&self, other: &KeyRef<'_>) -> Option<Ordering> {
+//         todo!()
+//     }
+// }
 
 impl Ord for Key {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -192,6 +216,7 @@ impl IntoIterator for Key {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct KeyRef<'a>(&'a [u8]);
 
 impl<'a> KeyRef<'a> {
@@ -203,12 +228,12 @@ impl<'a> KeyRef<'a> {
         KeyRef(slice)
     }
 
-    pub fn to_owned(self) -> Key {
+    pub fn to_owned(&self) -> Key {
         Key::from_encoded_slice(self.0)
     }
 
-    pub fn as_slice(self) -> &'a [u8] {
-        self.0
+    pub fn as_slice(&self) -> &'a [u8] {
+        &self.0
     }
 
     // reads the first 8 bytes
@@ -224,44 +249,68 @@ impl<'a> KeyRef<'a> {
         )
     }
 
-    pub fn iter(&self) -> KeyIterRef<'_> {
-        KeyIterRef {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> KeyRefIter<'_> {
+        KeyRefIter {
             data: self.0,
             count: TID_LEN + PREFIX_LEN,
         }
     }
 }
 
-#[derive(PartialEq, PartialOrd)]
-pub enum DataCellRef<'a> {
-    Int(i64),
-    Str(&'a str),
-}
-
-impl<'a> From<&'a DataCell> for DataCellRef<'a> {
-    fn from(value: &'a DataCell) -> Self {
-        match value {
-            DataCell::Str(s) => DataCellRef::Str(s),
-            DataCell::Int(i) => DataCellRef::Int(*i),
-        }
+impl std::fmt::Display for KeyRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", KeyRef::to_owned(self))
     }
 }
 
-impl<'a> From<&'a ValueObject> for DataCellRef<'a> {
-    fn from(value: &'a ValueObject) -> Self {
-        match value {
-            ValueObject::Str(s) => DataCellRef::Str(s),
-            ValueObject::Int(i) => DataCellRef::Int(*i),
-        }
+impl<'a> From<&'a Key> for KeyRef<'a> {
+    fn from(value: &'a Key) -> Self {
+        KeyRef::from_key(value)
     }
 }
 
-pub(crate) struct KeyIterRef<'a> {
+impl Eq for KeyRef<'_> {}
+
+impl PartialEq<KeyRef<'_>> for KeyRef<'_> {
+    fn eq(&self, other: &KeyRef<'_>) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd<KeyRef<'_>> for KeyRef<'_> {
+    fn partial_cmp(&self, other: &KeyRef<'_>) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyRef<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        key_cmp(self.as_slice(), other.as_slice())
+    }
+}
+
+// impl PartialEq<Key> for KeyRef<'_> {
+//     fn eq(&self, other: &Key) -> bool {
+//         self.cmp(&other.into()) == Ordering::Equal
+//     }
+// }
+
+// impl PartialOrd<Key> for KeyRef<'_> {
+//     fn partial_cmp(&self, other: &Key) -> Option<Ordering> {
+//         Some(self.cmp(&other.into()))
+//     }
+// }
+
+pub(crate) struct KeyRefIter<'a> {
     data: &'a [u8],
     count: usize,
 }
 
-impl<'a> Iterator for KeyIterRef<'a> {
+impl<'a> Iterator for KeyRefIter<'a> {
     type Item = DataCellRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -645,6 +694,44 @@ mod test {
         assert!(k1 < k2);
         assert!(k1 < k3);
         assert!(k1 == k4);
+        assert!(k1 <= k4);
+        assert!(k1 >= k4);
+
+        let k2_ref: KeyRef = (&k2).into();
+        let k3_ref: KeyRef = (&k3).into();
+        let k1_ref: KeyRef = (&k1).into();
+        let k4_ref: KeyRef = (&k4).into();
+
+        assert!(k3_ref < k2_ref);
+        assert!(k1_ref < k2_ref);
+        assert!(k1_ref < k3_ref);
+        assert!(k1_ref == k4_ref);
+        assert!(k1_ref <= k4_ref);
+        assert!(k1_ref >= k4_ref);
+
+        let k2: Key = 9.into();
+        let k3: Key = 10.into();
+        let k1: Key = 1.into();
+        let k4: Key = 1.into();
+
+        assert!(k3 > k2);
+        assert!(k1 < k2);
+        assert!(k1 < k3);
+        assert!(k1 == k4);
+        assert!(k1 <= k4);
+        assert!(k1 >= k4);
+
+        let k2_ref: KeyRef = (&k2).into();
+        let k3_ref: KeyRef = (&k3).into();
+        let k1_ref: KeyRef = (&k1).into();
+        let k4_ref: KeyRef = (&k4).into();
+
+        assert!(k3_ref > k2_ref);
+        assert!(k1_ref < k2_ref);
+        assert!(k1_ref < k3_ref);
+        assert!(k1_ref == k4_ref);
+        assert!(k1_ref <= k4_ref);
+        assert!(k1_ref >= k4_ref);
 
         Ok(())
     }

@@ -223,8 +223,7 @@ impl<P: Pager> Tree for BTree<P> {
         if self.root_ptr.is_none() {
             return Err(Error::SearchError("tree is empty".to_string()));
         }
-        mode.into_iter(self)
-            .ok_or_else(|| ScanError::IterCreateError("couldnt turn into iter".to_string()).into())
+        Ok(mode.into_iter(self))
     }
 }
 
@@ -259,6 +258,10 @@ impl<P: Pager> BTree<P> {
     // returns the amount of key value pairs in leaf nodes
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// recursive insertion, node = current node, returns updated node

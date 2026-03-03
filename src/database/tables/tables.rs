@@ -2,9 +2,9 @@ use std::{marker::PhantomData, ops::Deref};
 
 use crate::database::{
     errors::{Result, TableError},
-    tables::{Value, keyvalues::DataCellRef},
+    tables::Value,
     transactions::tx::TX,
-    types::{BTREE_MAX_VAL_SIZE, DataCell},
+    types::{BTREE_MAX_VAL_SIZE, DataCellRef},
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
