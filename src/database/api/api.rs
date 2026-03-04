@@ -267,7 +267,7 @@ fn select_columns(
                 debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
 
                 let key = Query::by_tid_prefix(table, index.prefix);
-                let res: Vec<FilteredRecord> = Scanner::prefix(key, &tx.tree)?
+                let res: Vec<FilteredRecord> = Scanner::prefix(key, &tx.tree)
                     .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok()) // reorder into primary row layout
                     .map(|record| filter_columns(record, col_indices.as_slice()))
                     .limit(stmt)

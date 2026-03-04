@@ -62,13 +62,16 @@ impl Key {
         &self.0[..]
     }
 
-    pub fn append_bound(&self, bound: Bound) -> Self {
+    /// copies the key and adds a bound byte
+    pub fn with_bound(&self, bound: Bound) -> Self {
+        let key_len = self.len();
         let mut buf = Vec::from(self.as_slice());
 
         match bound {
             Bound::Positive => buf.push(INFINITY_POS),
             Bound::Negative => buf.push(INFINITY_NEG),
         }
+        assert_eq!(buf.len(), key_len + 1);
         Key::from_encoded_slice(buf.as_slice())
     }
 
@@ -130,15 +133,19 @@ impl From<i64> for Key {
 impl std::fmt::Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let len = self.len();
+        if len == 0 {
+            return Ok(());
+        }
+
         write!(f, "{}", self.get_tid())?;
 
-        if len == TID_LEN {
+        if len < TID_LEN + PREFIX_LEN {
             return Ok(());
         }
 
         write!(f, " {}", self.get_prefix())?;
 
-        if len == TID_LEN + PREFIX_LEN {
+        if len <= TID_LEN + PREFIX_LEN + 1 {
             return Ok(());
         }
 
@@ -574,6 +581,7 @@ fn cell_cmp(a: &[u8], b: &[u8]) -> Ordering {
 
 // assumes the slice is an encoded key
 fn key_cmp(mut key_a: &[u8], mut key_b: &[u8]) -> Ordering {
+    debug!(key_1=?key_a, key_2=?key_b);
     let tid_a = key_a.read_u32();
     let tid_b = key_b.read_u32();
 
@@ -584,6 +592,12 @@ fn key_cmp(mut key_a: &[u8], mut key_b: &[u8]) -> Ordering {
 
     if let Some(o) = len_cmp(key_a, key_b) {
         return o;
+    }
+
+    // checking for potential bound bit
+    match key_a[0].cmp(&key_b[0]) {
+        Ordering::Equal => {}
+        o => return o,
     }
 
     let prefix_a = key_a.read_u16();

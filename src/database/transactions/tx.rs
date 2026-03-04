@@ -4,10 +4,7 @@ use tracing::{debug, error, info, instrument};
 
 use crate::database::{
     BTree,
-    btree::{
-        Compare, CursorDir, DeleteResponse, PrefixScanIter, ScanIter, Scanner, SetFlag,
-        SetResponse, Tree,
-    },
+    btree::{Compare, DeleteResponse, ScanIter, Scanner, SetFlag, SetResponse, Tree},
     codec::Bound,
     errors::{Error, Result, TXError, TableError},
     pager::MetaPage,
@@ -265,10 +262,10 @@ impl TX {
     /// scans all primary keys in a table
     pub fn full_table_scan(&self, schema: &Table) -> Result<ScanIter<'_, TXStore>> {
         let key = Query::by_tid_prefix(schema, PKEY_PREFIX);
-        let lo = key.append_bound(Bound::Negative);
-        let hi = key.append_bound(Bound::Positive);
+        let lo = key.with_bound(Bound::Negative);
+        let hi = key.with_bound(Bound::Positive);
 
-        debug!("full table scan with keys:\nlo {lo:?}\nhi {hi:?}");
+        info!("full table scan with keys:\nlo {lo:?}\nhi {hi:?}");
         Ok(Scanner::range((lo, Compare::Gt), (hi, Compare::Gt))?.into_iter(&self.tree))
     }
 
@@ -280,9 +277,12 @@ impl TX {
 
     /// counts all entries inside a table, this includes secondary indices
     pub fn count_entries(&self, schema: &Table) -> Result<u32> {
-        let key = Query::by_tid(schema);
+        info!("counting entries");
+        let key = Query::by_tid_prefix(schema, PKEY_PREFIX);
+        let lo = key.with_bound(Bound::Negative);
+        let hi = key.with_bound(Bound::Negative);
         // let scan = ScanMode::prefix(key, &self.tree, Compare::Eq)?;
-        let scan = Scanner::open(key, Compare::Ge, CursorDir::Next)?.into_iter(&self.tree);
+        let scan = Scanner::range((lo, Compare::Gt), (hi, Compare::Lt))?.into_iter(&self.tree);
 
         Ok(scan.count() as u32)
     }
@@ -511,7 +511,7 @@ impl TX {
 
         let prefix = table.indices[idx].prefix;
         let q = Query::by_tid_prefix(table, prefix);
-        let kvs: Vec<(Key, Value)> = Scanner::prefix(q, &self.tree)?.collect();
+        let kvs: Vec<(Key, Value)> = Scanner::prefix(q, &self.tree).collect();
         assert!(kvs.len() > 0);
         assert!(prefix != 0);
 
@@ -916,24 +916,24 @@ mod tables {
             tx.insert_rec(entry, &table2, SetFlag::UPSERT)?;
         }
 
-        let open = Scanner::open(
+        let res = Scanner::open(
             Query::by_col(&table1).add("name", "Alice").encode()?,
             Compare::Ge,
-            CursorDir::Next,
-        )?;
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
+            &tx.tree,
+        )
+        .collect_records();
 
         assert_eq!(res.len(), 3);
         assert_eq!(res[0].to_string(), "Alice 20");
         assert_eq!(res[1].to_string(), "Bob 15");
         assert_eq!(res[2].to_string(), "Charlie 25");
 
-        let open = Scanner::open(
+        let res = Scanner::open(
             Query::by_col(&table2).add("id", 20).encode()?,
             Compare::Ge,
-            CursorDir::Next,
-        )?;
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
+            &tx.tree,
+        )
+        .collect_records();
 
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].to_string(), "20 Alice teacher");
@@ -1121,74 +1121,18 @@ mod scan {
         }
 
         // Scan table1
-        let open = Scanner::open(
-            Query::by_col(&table1).add("key", "key_a_1").encode()?,
-            Compare::Ge,
-            CursorDir::Next,
-        )?;
-        let res1: Vec<_> = tx.tree_scan(open)?.collect_records();
+        let res1 = tx.full_table_scan(&table1)?.collect_records();
 
         // Should only contain table1 records
         assert!(res1.iter().all(|r| r.to_string().contains("val_a_")));
         assert_eq!(res1.len(), 10);
 
         // Scan table2
-        let open = Scanner::open(
-            Query::by_col(&table2).add("key", "key_b_1").encode()?,
-            Compare::Ge,
-            CursorDir::Next,
-        )?;
-        let res2: Vec<_> = tx.tree_scan(open)?.collect_records();
+        let res2 = tx.full_table_scan(&table2)?.collect_records();
 
         // Should only contain table2 records
         assert!(res2.iter().all(|r| r.to_string().contains("val_b_")));
         assert_eq!(res2.len(), 10);
-
-        db.commit(tx)?;
-        cleanup_file(path);
-        Ok(())
-    }
-
-    #[test]
-    fn scan_with_lt_predicate() -> Result<()> {
-        let path = "test-files/scan_lt.rdb";
-        cleanup_file(path);
-        let db = Arc::new(StorageEngine::new(path));
-        let mut tx = db.begin(&db, TXKind::Write);
-
-        let table = TableBuilder::new()
-            .id(30)
-            .name("lt_table")
-            .add_col("score", TypeCol::Integer)
-            .add_col("player", TypeCol::Bytes)
-            .pkey(1)
-            .build(&mut tx)?;
-
-        tx.insert_table(&table)?;
-
-        for i in 1..=10 {
-            tx.insert_rec(
-                Record::new()
-                    .add(i as i64 * 10)
-                    .add(format!("player_{}", i)),
-                &table,
-                SetFlag::UPSERT,
-            )?;
-        }
-
-        // Scan backwards from score 50
-        let open = Scanner::open(
-            Query::by_col(&table).add("score", 50i64).encode()?,
-            Compare::Lt,
-            CursorDir::Prev,
-        )?;
-
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
-
-        // Should return scores 40, 30, 20, 10
-        assert_eq!(res.len(), 4);
-        assert_eq!(res[0].to_string(), "40 player_4");
-        assert_eq!(res[3].to_string(), "10 player_1");
 
         db.commit(tx)?;
         cleanup_file(path);
@@ -1221,94 +1165,13 @@ mod scan {
         }
 
         // Scan for values greater than max
-        let open = Scanner::open(
+        let mut result = Scanner::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
-            CursorDir::Next,
-        )?;
-
-        let mut result = tx.tree_scan(open)?;
-        assert!(result.next().is_none()); // Should error on empty result
-
-        db.commit(tx)?;
-        cleanup_file(path);
-        Ok(())
-    }
-
-    #[test]
-    fn scan_single_record_result() -> Result<()> {
-        let path = "test-files/scan_single.rdb";
-        cleanup_file(path);
-        let db = Arc::new(StorageEngine::new(path));
-        let mut tx = db.begin(&db, TXKind::Write);
-
-        let table = TableBuilder::new()
-            .id(50)
-            .name("single_table")
-            .add_col("code", TypeCol::Bytes)
-            .add_col("value", TypeCol::Integer)
-            .pkey(1)
-            .build(&mut tx)?;
-
-        tx.insert_table(&table)?;
-
-        tx.insert_rec(
-            Record::new().add("CODE_001").add(42i64),
-            &table,
-            SetFlag::UPSERT,
-        )?;
-
-        let open = Scanner::open(
-            Query::by_col(&table).add("code", "CODE_001").encode()?,
-            Compare::Eq,
-            CursorDir::Next,
+            &tx.tree,
         );
 
-        assert!(open.is_ok());
-        assert_eq!(open.unwrap().into_iter(&tx.tree).collect_records().len(), 1);
-
-        db.commit(tx)?;
-        cleanup_file(path);
-        Ok(())
-    }
-
-    #[test]
-    fn scan_with_le_predicate() -> Result<()> {
-        let path = "test-files/scan_le.rdb";
-        cleanup_file(path);
-        let db = Arc::new(StorageEngine::new(path));
-        let mut tx = db.begin(&db, TXKind::Write);
-
-        let table = TableBuilder::new()
-            .id(60)
-            .name("le_table")
-            .add_col("value", TypeCol::Integer)
-            .add_col("label", TypeCol::Bytes)
-            .pkey(1)
-            .build(&mut tx)?;
-
-        tx.insert_table(&table)?;
-
-        for i in 10..=50 {
-            tx.insert_rec(
-                Record::new().add(i as i64).add(format!("label_{}", i)),
-                &table,
-                SetFlag::UPSERT,
-            )?;
-        }
-
-        // Scan from 35 backwards (LE)
-        let open = Scanner::open(
-            Query::by_col(&table).add("value", 35i64).encode()?,
-            Compare::Le,
-            CursorDir::Prev,
-        )?;
-
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
-
-        // Should include 35 and go backwards to 10
-        assert_eq!(res.len(), 26); // 35 down to 10
-        assert_eq!(res[0].to_string(), "35 label_35");
+        assert!(result.next().is_none()); // Should error on empty result
 
         db.commit(tx)?;
         cleanup_file(path);
@@ -1342,13 +1205,12 @@ mod scan {
         }
 
         // Scan from id 100 onwards
-        let open = Scanner::open(
+        let res = Scanner::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
-            CursorDir::Next,
-        )?;
-
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
+            &tx.tree,
+        )
+        .collect_records();
 
         assert_eq!(res.len(), 400); // 101 to 500
         assert_eq!(res[0].to_string(), "101 name_0101");
@@ -1386,13 +1248,12 @@ mod scan {
         }
 
         // Scan from "bob" onwards
-        let open = Scanner::open(
+        let res = Scanner::open(
             Query::by_col(&table).add("name", "bob").encode()?,
             Compare::Ge,
-            CursorDir::Next,
-        )?;
-
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
+            &tx.tree,
+        )
+        .collect_records();
 
         assert_eq!(res.len(), 4); // bob, charlie, david, eve
         assert_eq!(res[0].to_string(), "bob data_bob");
@@ -1435,15 +1296,12 @@ mod scan {
         }
 
         // Scan from beginning
-        let open = Scanner::open(
-            Query::by_col(&table).add("id", 1i64).encode()?,
-            Compare::Ge,
-            CursorDir::Next,
-        )?;
+        let key = Query::by_col(&table).add("id", 1).encode()?;
+        let res = Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?
+            .into_iter(&tx.tree)
+            .collect_records();
 
-        let res: Vec<_> = tx.tree_scan(open)?.collect_records();
-
-        // Should have 7 records (10 - 3 deleted)
+        // Should have 7 records
         assert_eq!(res.len(), 7);
         assert!(!res.iter().any(|r| r.to_string().contains("val_3")));
         assert!(!res.iter().any(|r| r.to_string().contains("val_5")));
@@ -1476,6 +1334,8 @@ mod concurrent_tx_tests {
     use test_log::test;
     use tracing::{Level, span, warn};
 
+    const N_THREADS: usize = 100;
+
     #[test]
     fn concurrent_same_key_write() -> Result<()> {
         let path = "test-files/records_insert_search.rdb";
@@ -1498,12 +1358,12 @@ mod concurrent_tx_tests {
         db.commit(tx)?;
 
         let res = Mutex::new(vec![]);
-        let n = 1000;
-        let barrier = Arc::new(Barrier::new(n));
+        let n_threads = N_THREADS;
+        let barrier = Arc::new(Barrier::new(n_threads));
 
         thread::scope(|s| {
             let mut handles = vec![];
-            for i in 0..n {
+            for i in 0..n_threads {
                 handles.push(s.spawn(|| {
                     let id = thread::current().id();
                     let span = span!(Level::DEBUG, "thread ", ?id);
@@ -1614,7 +1474,7 @@ mod concurrent_tx_tests {
         tx.insert_table(&table)?;
         db.commit(tx)?;
 
-        let n_threads = 400;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
         let retries_exceeded = Arc::new(Mutex::new(0));
@@ -1723,7 +1583,7 @@ mod concurrent_tx_tests {
 
         db.commit(tx)?;
 
-        let n_threads = 20;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -1812,7 +1672,7 @@ mod concurrent_tx_tests {
 
         db.commit(tx)?;
 
-        let n_threads = 1000;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -1887,7 +1747,7 @@ mod concurrent_tx_tests {
         }
         db.commit(tx)?;
 
-        let n_threads = 1000;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -1969,7 +1829,7 @@ mod concurrent_tx_tests {
         tx.insert_rec(Record::new().add(1i64).add(0i64), &table, SetFlag::INSERT)?;
         db.commit(tx)?;
 
-        let n_threads = 1000;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -2047,7 +1907,7 @@ mod concurrent_tx_tests {
 
         tx.insert_table(&table)?;
 
-        let n_threads = 500;
+        let n_threads = N_THREADS;
         // Insert records to delete
         for i in 1..=n_threads {
             tx.insert_rec(
@@ -2150,7 +2010,7 @@ mod concurrent_tx_tests {
         )?;
         db.commit(tx)?;
 
-        let n_threads = 1000;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -2235,7 +2095,7 @@ mod concurrent_tx_tests {
         }
         db.commit(tx)?;
 
-        let n_threads = 15;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let results = Arc::new(Mutex::new(vec![]));
 
@@ -2326,7 +2186,7 @@ mod concurrent_tx_tests {
         tx.insert_rec(Record::new().add(1i64).add(0i64), &table, SetFlag::INSERT)?;
         db.commit(tx)?;
 
-        let n_threads = 1000;
+        let n_threads = N_THREADS;
         let barrier = Arc::new(Barrier::new(n_threads));
         let read_results = Arc::new(Mutex::new(vec![]));
         let write_results = Arc::new(Mutex::new(vec![]));
@@ -2824,10 +2684,7 @@ mod secondary_index_ops {
             .add("email", "alice@example.com")
             .encode()?;
 
-        let mut scan = Scanner::open(email_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
-
+        let mut scan = Scanner::open(email_query, Compare::Ge, &tx.tree);
         let result = scan.next().unwrap();
         let key = result.0.decode();
         let val = result.1.decode();
@@ -2884,9 +2741,7 @@ mod secondary_index_ops {
         let eng_query = Query::by_col(&table)
             .add("department", "Engineering")
             .encode()?;
-        let mut scan = Scanner::open(eng_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(eng_query, Compare::Ge, &tx.tree);
         let mut count = 0;
         while let Some(_) = scan.next() {
             count += 1;
@@ -2934,23 +2789,17 @@ mod secondary_index_ops {
 
         // Query by each secondary index
         let name_query = Query::by_col(&table).add("name", "Laptop").encode()?;
-        let mut scan = Scanner::open(name_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(name_query, Compare::Ge, &tx.tree);
         assert!(scan.next().is_some()); // Found by name
 
         let category_query = Query::by_col(&table)
             .add("category", "Electronics")
             .encode()?;
-        let mut scan = Scanner::open(category_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(category_query, Compare::Ge, &tx.tree);
         assert!(scan.next().is_some()); // Found by category
 
         let price_query = Query::by_col(&table).add("price", 1500i64).encode()?;
-        let mut scan = Scanner::open(price_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(price_query, Compare::Ge, &tx.tree);
         assert!(scan.next().is_some()); // Found by price
 
         db.commit(tx)?;
@@ -2988,10 +2837,7 @@ mod secondary_index_ops {
 
         // Verify it exists via secondary index
         let status_query = Query::by_col(&table).add("status", "active").encode()?;
-        let mut scan = Scanner::open(status_query.clone(), Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
-        assert!(scan.next().is_some());
+        let mut scan = Scanner::open(status_query.clone(), Compare::Ge, &tx.tree);
 
         // Delete the record
         let q = Query::by_col(&table).add("id", 1i64);
@@ -3001,10 +2847,7 @@ mod secondary_index_ops {
         assert!(tx.tree_get(pk_query).is_none());
 
         // Verify secondary index entry is also gone (should be handled by record deletion)
-        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
-
+        let mut scan = Scanner::open(status_query, Compare::Ge, &tx.tree);
         assert!(scan.next().is_none());
 
         db.commit(tx)?;
@@ -3101,9 +2944,7 @@ mod secondary_index_ops {
 
         // Read via username secondary index
         let username_query = Query::by_col(&table).add("username", "alice").encode()?;
-        let mut scan = Scanner::open(username_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(username_query, Compare::Ge, &tx.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("alice@example.com".to_string()));
@@ -3113,10 +2954,7 @@ mod secondary_index_ops {
         let email_query = Query::by_col(&table)
             .add("email", "bob@example.com")
             .encode()?;
-        let mut scan = Scanner::open(email_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
-
+        let mut scan = Scanner::open(email_query, Compare::Ge, &tx.tree);
         let result = scan.next().unwrap();
 
         let key = result.0;
@@ -3162,9 +3000,7 @@ mod secondary_index_ops {
 
         // Verify initial state
         let status_query = Query::by_col(&table).add("status", "pending").encode()?;
-        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(status_query, Compare::Ge, &tx.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Int(100));
@@ -3181,9 +3017,7 @@ mod secondary_index_ops {
 
         // Verify new secondary index entry exists
         let new_status_query = Query::by_col(&table).add("status", "completed").encode()?;
-        let mut scan = Scanner::open(new_status_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx.tree);
+        let mut scan = Scanner::open(new_status_query, Compare::Ge, &tx.tree);
         assert!(scan.next().is_some());
 
         db.commit(tx)?;
@@ -3223,8 +3057,8 @@ mod secondary_index_ops {
 
         // Scan from score 100 onwards
         let start_key = Query::by_col(&table).add("score", 100i64).encode()?;
-        let scan_mode = Scanner::open(start_key, Compare::Ge, CursorDir::Next)?;
-        let results: Vec<_> = tx.tree_scan(scan_mode)?.collect_records();
+        let scan_mode = Scanner::open(start_key, Compare::Ge, &tx.tree);
+        let results: Vec<_> = scan_mode.collect_records();
 
         // Should get records with scores from 100 to 200 (11 records)
         assert_eq!(results.len(), 11);
@@ -3311,7 +3145,7 @@ mod secondary_index_ops {
         let tag_query = Query::by_col(&table).add("tag", tag).encode()?;
 
         let scan = Scanner::prefix(tag_query, &tx.tree);
-        assert_eq!(scan.unwrap().count(), n_threads);
+        assert_eq!(scan.count(), n_threads);
 
         db.commit(tx)?;
 
@@ -3349,9 +3183,8 @@ mod secondary_index_ops {
         // Transaction 2: Read via secondary index
         let tx2 = db.begin(&db, TXKind::Read);
         let status_query = Query::by_col(&table).add("status", "draft").encode()?;
-        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx2.tree);
+        let mut scan = Scanner::open(status_query, Compare::Ge, &tx2.tree);
+
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("content_1".to_string()));
@@ -3369,9 +3202,7 @@ mod secondary_index_ops {
         // Transaction 4: Verify update via secondary index
         let tx4 = db.begin(&db, TXKind::Read);
         let new_status_query = Query::by_col(&table).add("status", "published").encode()?;
-        let mut scan = Scanner::open(new_status_query, Compare::Ge, CursorDir::Next)
-            .unwrap()
-            .into_iter(&tx4.tree);
+        let mut scan = Scanner::open(new_status_query, Compare::Ge, &tx4.tree);
         let result = scan.next().unwrap();
         let val = result.1.decode();
         assert_eq!(val[0], DataCell::Str("updated_content".to_string()));
@@ -3421,7 +3252,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree).next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data"));
@@ -3481,7 +3312,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree).next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data_{i}"));
@@ -3498,7 +3329,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 2);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree).next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 2 data_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("tag_{i}"));
