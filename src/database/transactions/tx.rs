@@ -5,9 +5,10 @@ use tracing::{debug, error, info, instrument};
 use crate::database::{
     BTree,
     btree::{
-        Compare, CursorDir, DeleteResponse, PrefixScanIter, ScanIter, ScanMode, SetFlag,
+        Compare, CursorDir, DeleteResponse, PrefixScanIter, ScanIter, Scanner, SetFlag,
         SetResponse, Tree,
     },
+    codec::Bound,
     errors::{Error, Result, TXError, TableError},
     pager::MetaPage,
     tables::{
@@ -51,7 +52,7 @@ impl TX {
         self.tree.set(key, value, flag)
     }
 
-    fn tree_scan(&self, mode: ScanMode) -> Result<ScanIter<'_, TXStore>> {
+    fn tree_scan(&self, mode: Scanner) -> Result<ScanIter<'_, TXStore>> {
         self.tree.scan(mode)
     }
 
@@ -263,14 +264,12 @@ impl TX {
 
     /// scans all primary keys in a table
     pub fn full_table_scan(&self, schema: &Table) -> Result<ScanIter<'_, TXStore>> {
-        // writing a seek key with TID and Prefix 0
         let key = Query::by_tid_prefix(schema, PKEY_PREFIX);
-        debug!(%key, "full table scan key");
-        Ok(
-            ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
-                .into_iter(&self.tree),
-        )
-        // ScanMode::prefix(key, &self.tree, Compare::Eq)
+        let lo = key.append_bound(Bound::Negative);
+        let hi = key.append_bound(Bound::Positive);
+
+        debug!("full table scan with keys:\nlo {lo:?}\nhi {hi:?}");
+        Ok(Scanner::range((lo, Compare::Gt), (hi, Compare::Gt))?.into_iter(&self.tree))
     }
 
     /// counts all unique rows inside a table
@@ -283,7 +282,7 @@ impl TX {
     pub fn count_entries(&self, schema: &Table) -> Result<u32> {
         let key = Query::by_tid(schema);
         // let scan = ScanMode::prefix(key, &self.tree, Compare::Eq)?;
-        let scan = ScanMode::open(key, Compare::Ge, CursorDir::Next)?.into_iter(&self.tree);
+        let scan = Scanner::open(key, Compare::Ge, CursorDir::Next)?.into_iter(&self.tree);
 
         Ok(scan.count() as u32)
     }
@@ -292,6 +291,7 @@ impl TX {
     #[instrument(name = "insert rec", skip_all)]
     pub fn insert_rec(&mut self, rec: Record, schema: &Table, flag: SetFlag) -> Result<u32> {
         info!(?rec, "inserting record");
+
         if self.kind == TXKind::Read {
             return Err(TXError::MismatchedKindError.into());
         }
@@ -308,6 +308,7 @@ impl TX {
                 Error::InsertError("record failed to encode".to_string())
             })?
             .peekable();
+
         let mut old_rec;
         let old_pk;
         let mut modified = 0;
@@ -510,7 +511,7 @@ impl TX {
 
         let prefix = table.indices[idx].prefix;
         let q = Query::by_tid_prefix(table, prefix);
-        let kvs: Vec<(Key, Value)> = ScanMode::prefix(q, &self.tree, Compare::Eq)?.collect();
+        let kvs: Vec<(Key, Value)> = Scanner::prefix(q, &self.tree)?.collect();
         assert!(kvs.len() > 0);
         assert!(prefix != 0);
 
@@ -541,7 +542,7 @@ impl TX {
 #[cfg(test)]
 mod tables {
     use crate::database::{
-        btree::{Compare, ScanMode, SetFlag},
+        btree::{Compare, Scanner, SetFlag},
         pager::transaction::Transaction,
         tables::{Query, Record, TypeCol, tables::TableBuilder},
         transactions::{kvdb::StorageEngine, tx::TXKind},
@@ -571,8 +572,8 @@ mod tables {
         let table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)
             .unwrap();
@@ -599,9 +600,9 @@ mod tables {
         let table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("id", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -632,6 +633,22 @@ mod tables {
         assert_eq!(q3_res[0], DataCell::Int(25));
         assert_eq!(q3_res[1], DataCell::Int(3));
 
+        let count = tx.count_rows(&table)?;
+        assert_eq!(count, 3);
+
+        let mut entries = vec![];
+        entries.push(Record::new().add("Alice").add(20).add(1));
+        entries.push(Record::new().add("Bob").add(15).add(2));
+        entries.push(Record::new().add("Charlie").add(25).add(3));
+
+        for entry in entries {
+            let inserted = tx.insert_rec(entry, &table, SetFlag::INSERT)?;
+            assert_eq!(inserted, 0);
+        }
+
+        // checking for duplicates
+        assert_eq!(tx.count_entries(&table)?, count);
+
         db.commit(tx)?;
         cleanup_file(path);
         Ok(())
@@ -647,9 +664,9 @@ mod tables {
         let table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("id", TypeCol::Integer)
             .pkey(2)
             .build(&mut tx)
             .unwrap();
@@ -703,7 +720,7 @@ mod tables {
             TableBuilder::new()
                 .name("")
                 .id(10)
-                .add_col("a", TypeCol::BYTES)
+                .add_col("a", TypeCol::Bytes)
                 .pkey(1)
                 .build(&mut tx)
                 .is_err()
@@ -714,7 +731,7 @@ mod tables {
             TableBuilder::new()
                 .name("t")
                 .id(11)
-                .add_col("a", TypeCol::BYTES)
+                .add_col("a", TypeCol::Bytes)
                 .pkey(0)
                 .build(&mut tx)
                 .is_err()
@@ -725,7 +742,7 @@ mod tables {
             TableBuilder::new()
                 .name("t")
                 .id(12)
-                .add_col("a", TypeCol::BYTES)
+                .add_col("a", TypeCol::Bytes)
                 .pkey(2)
                 .build(&mut tx)
                 .is_err()
@@ -755,7 +772,7 @@ mod tables {
         let table = TableBuilder::new()
             .id(12)
             .name("dup")
-            .add_col("x", TypeCol::BYTES)
+            .add_col("x", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)
             .unwrap();
@@ -777,7 +794,7 @@ mod tables {
         let table = TableBuilder::new()
             .id(13)
             .name("droppable")
-            .add_col("x", TypeCol::BYTES)
+            .add_col("x", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)
             .unwrap();
@@ -834,7 +851,7 @@ mod tables {
         let table = TableBuilder::new()
             .id(16)
             .name("invalid")
-            .add_col("x", TypeCol::BYTES)
+            .add_col("x", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)
             .unwrap();
@@ -861,17 +878,17 @@ mod tables {
         let table1 = TableBuilder::new()
             .id(5)
             .name("table_1")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
         let table2 = TableBuilder::new()
             .id(7)
             .name("table_2")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("job", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -899,7 +916,7 @@ mod tables {
             tx.insert_rec(entry, &table2, SetFlag::UPSERT)?;
         }
 
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table1).add("name", "Alice").encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -911,7 +928,7 @@ mod tables {
         assert_eq!(res[1].to_string(), "Bob 15");
         assert_eq!(res[2].to_string(), "Charlie 25");
 
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table2).add("id", 20).encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -937,17 +954,17 @@ mod tables {
         let table1 = TableBuilder::new()
             .id(5)
             .name("table_1")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
         let table2 = TableBuilder::new()
             .id(7)
             .name("table_2")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("job", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1002,7 +1019,7 @@ mod tables {
 #[cfg(test)]
 mod scan {
     use crate::database::btree::Compare;
-    use crate::database::btree::{ScanMode, SetFlag};
+    use crate::database::btree::{Scanner, SetFlag};
     use crate::database::pager::transaction::Transaction;
     use crate::database::tables::{Query, Record, TypeCol, tables::TableBuilder};
     use crate::database::transactions::{kvdb::StorageEngine, tx::TXKind};
@@ -1022,8 +1039,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(10)
             .name("range_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1042,7 +1059,7 @@ mod scan {
         let lo_key = Query::by_col(&table).add("id", 5i64).encode()?;
         let hi_key = Query::by_col(&table).add("id", 15i64).encode()?;
 
-        let range = ScanMode::range((lo_key, Compare::Ge), (hi_key, Compare::Gt))?;
+        let range = Scanner::range((lo_key, Compare::Ge), (hi_key, Compare::Gt))?;
 
         let res: Vec<_> = tx.tree_scan(range)?.collect_records();
 
@@ -1065,16 +1082,16 @@ mod scan {
         let table1 = TableBuilder::new()
             .id(20)
             .name("table_a")
-            .add_col("key", TypeCol::BYTES)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("key", TypeCol::Bytes)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
         let table2 = TableBuilder::new()
             .id(21)
             .name("table_b")
-            .add_col("key", TypeCol::BYTES)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("key", TypeCol::Bytes)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1104,7 +1121,7 @@ mod scan {
         }
 
         // Scan table1
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table1).add("key", "key_a_1").encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -1116,7 +1133,7 @@ mod scan {
         assert_eq!(res1.len(), 10);
 
         // Scan table2
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table2).add("key", "key_b_1").encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -1142,8 +1159,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(30)
             .name("lt_table")
-            .add_col("score", TypeCol::INTEGER)
-            .add_col("player", TypeCol::BYTES)
+            .add_col("score", TypeCol::Integer)
+            .add_col("player", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1160,7 +1177,7 @@ mod scan {
         }
 
         // Scan backwards from score 50
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("score", 50i64).encode()?,
             Compare::Lt,
             CursorDir::Prev,
@@ -1188,8 +1205,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(40)
             .name("empty_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1204,7 +1221,7 @@ mod scan {
         }
 
         // Scan for values greater than max
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
             CursorDir::Next,
@@ -1228,8 +1245,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(50)
             .name("single_table")
-            .add_col("code", TypeCol::BYTES)
-            .add_col("value", TypeCol::INTEGER)
+            .add_col("code", TypeCol::Bytes)
+            .add_col("value", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1241,7 +1258,7 @@ mod scan {
             SetFlag::UPSERT,
         )?;
 
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("code", "CODE_001").encode()?,
             Compare::Eq,
             CursorDir::Next,
@@ -1265,8 +1282,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(60)
             .name("le_table")
-            .add_col("value", TypeCol::INTEGER)
-            .add_col("label", TypeCol::BYTES)
+            .add_col("value", TypeCol::Integer)
+            .add_col("label", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1281,7 +1298,7 @@ mod scan {
         }
 
         // Scan from 35 backwards (LE)
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("value", 35i64).encode()?,
             Compare::Le,
             CursorDir::Prev,
@@ -1308,8 +1325,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(70)
             .name("large_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1325,7 +1342,7 @@ mod scan {
         }
 
         // Scan from id 100 onwards
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("id", 100i64).encode()?,
             Compare::Gt,
             CursorDir::Next,
@@ -1352,8 +1369,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(80)
             .name("byte_table")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1369,7 +1386,7 @@ mod scan {
         }
 
         // Scan from "bob" onwards
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("name", "bob").encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -1395,8 +1412,8 @@ mod scan {
         let table = TableBuilder::new()
             .id(90)
             .name("delete_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1418,7 +1435,7 @@ mod scan {
         }
 
         // Scan from beginning
-        let open = ScanMode::open(
+        let open = Scanner::open(
             Query::by_col(&table).add("id", 1i64).encode()?,
             Compare::Ge,
             CursorDir::Next,
@@ -1470,9 +1487,9 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("id", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1589,8 +1606,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(3)
             .name("users")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1688,8 +1705,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(100)
             .name("read_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1760,16 +1777,16 @@ mod concurrent_tx_tests {
         let table1 = TableBuilder::new()
             .id(101)
             .name("table1")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
         let table2 = TableBuilder::new()
             .id(102)
             .name("table2")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1853,8 +1870,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(103)
             .name("update_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -1942,8 +1959,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(104)
             .name("conflict_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("counter", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("counter", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2023,8 +2040,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(105)
             .name("delete_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2119,8 +2136,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(106)
             .name("delete_conflict_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2197,9 +2214,9 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(107)
             .name("mixed_crud_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("operation", TypeCol::BYTES)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("operation", TypeCol::Bytes)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2299,8 +2316,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(108)
             .name("read_during_write_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2392,8 +2409,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(109)
             .name("insert_read_consistency")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2485,8 +2502,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(110)
             .name("scan_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2543,8 +2560,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(111)
             .name("retry_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2606,8 +2623,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(112)
             .name("upsert_table")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("version", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("version", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2677,8 +2694,8 @@ mod concurrent_tx_tests {
         let table = TableBuilder::new()
             .id(113)
             .name("write_after_read")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2751,7 +2768,7 @@ mod concurrent_tx_tests {
 mod secondary_index_ops {
     use super::*;
     use crate::database::{
-        btree::{Compare, ScanMode, SetFlag},
+        btree::{Compare, Scanner, SetFlag},
         helper::cleanup_file,
         pager::transaction::{Retry, Transaction},
         tables::{Query, Record, TypeCol, tables::TableBuilder},
@@ -2777,9 +2794,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(50)
             .name("users")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("email", TypeCol::BYTES)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("email", TypeCol::Bytes)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2807,7 +2824,7 @@ mod secondary_index_ops {
             .add("email", "alice@example.com")
             .encode()?;
 
-        let mut scan = ScanMode::open(email_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(email_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
 
@@ -2836,9 +2853,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(51)
             .name("employees")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("department", TypeCol::BYTES)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("department", TypeCol::Bytes)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2867,7 +2884,7 @@ mod secondary_index_ops {
         let eng_query = Query::by_col(&table)
             .add("department", "Engineering")
             .encode()?;
-        let mut scan = ScanMode::open(eng_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(eng_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         let mut count = 0;
@@ -2891,10 +2908,10 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(52)
             .name("products")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("category", TypeCol::BYTES)
-            .add_col("price", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("category", TypeCol::Bytes)
+            .add_col("price", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2917,7 +2934,7 @@ mod secondary_index_ops {
 
         // Query by each secondary index
         let name_query = Query::by_col(&table).add("name", "Laptop").encode()?;
-        let mut scan = ScanMode::open(name_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(name_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by name
@@ -2925,13 +2942,13 @@ mod secondary_index_ops {
         let category_query = Query::by_col(&table)
             .add("category", "Electronics")
             .encode()?;
-        let mut scan = ScanMode::open(category_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(category_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by category
 
         let price_query = Query::by_col(&table).add("price", 1500i64).encode()?;
-        let mut scan = ScanMode::open(price_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(price_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         assert!(scan.next().is_some()); // Found by price
@@ -2951,9 +2968,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(53)
             .name("deletable")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("status", TypeCol::BYTES)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("status", TypeCol::Bytes)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -2971,7 +2988,7 @@ mod secondary_index_ops {
 
         // Verify it exists via secondary index
         let status_query = Query::by_col(&table).add("status", "active").encode()?;
-        let mut scan = ScanMode::open(status_query.clone(), Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(status_query.clone(), Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         assert!(scan.next().is_some());
@@ -2984,7 +3001,7 @@ mod secondary_index_ops {
         assert!(tx.tree_get(pk_query).is_none());
 
         // Verify secondary index entry is also gone (should be handled by record deletion)
-        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
 
@@ -3005,9 +3022,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(54)
             .name("deletable_multi")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("category", TypeCol::BYTES)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("category", TypeCol::Bytes)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3057,10 +3074,10 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(55)
             .name("readers")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("username", TypeCol::BYTES)
-            .add_col("email", TypeCol::BYTES)
-            .add_col("role", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("username", TypeCol::Bytes)
+            .add_col("email", TypeCol::Bytes)
+            .add_col("role", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3084,7 +3101,7 @@ mod secondary_index_ops {
 
         // Read via username secondary index
         let username_query = Query::by_col(&table).add("username", "alice").encode()?;
-        let mut scan = ScanMode::open(username_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(username_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         let result = scan.next().unwrap();
@@ -3096,7 +3113,7 @@ mod secondary_index_ops {
         let email_query = Query::by_col(&table)
             .add("email", "bob@example.com")
             .encode()?;
-        let mut scan = ScanMode::open(email_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(email_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
 
@@ -3129,9 +3146,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(56)
             .name("upsertable")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("status", TypeCol::BYTES)
-            .add_col("value", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("status", TypeCol::Bytes)
+            .add_col("value", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3145,7 +3162,7 @@ mod secondary_index_ops {
 
         // Verify initial state
         let status_query = Query::by_col(&table).add("status", "pending").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         let result = scan.next().unwrap();
@@ -3164,7 +3181,7 @@ mod secondary_index_ops {
 
         // Verify new secondary index entry exists
         let new_status_query = Query::by_col(&table).add("status", "completed").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(new_status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx.tree);
         assert!(scan.next().is_some());
@@ -3184,9 +3201,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(57)
             .name("scannables")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("score", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("score", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3206,7 +3223,7 @@ mod secondary_index_ops {
 
         // Scan from score 100 onwards
         let start_key = Query::by_col(&table).add("score", 100i64).encode()?;
-        let scan_mode = ScanMode::open(start_key, Compare::Ge, CursorDir::Next)?;
+        let scan_mode = Scanner::open(start_key, Compare::Ge, CursorDir::Next)?;
         let results: Vec<_> = tx.tree_scan(scan_mode)?.collect_records();
 
         // Should get records with scores from 100 to 200 (11 records)
@@ -3227,9 +3244,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(58)
             .name("concurrent_secondary")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("tag", TypeCol::BYTES)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("tag", TypeCol::Bytes)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3293,7 +3310,7 @@ mod secondary_index_ops {
         let tag = format!("tag_0");
         let tag_query = Query::by_col(&table).add("tag", tag).encode()?;
 
-        let scan = ScanMode::prefix(tag_query, &tx.tree, Compare::Ge);
+        let scan = Scanner::prefix(tag_query, &tx.tree);
         assert_eq!(scan.unwrap().count(), n_threads);
 
         db.commit(tx)?;
@@ -3312,9 +3329,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(59)
             .name("isolation_test")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("status", TypeCol::BYTES)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("status", TypeCol::Bytes)
+            .add_col("value", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3332,7 +3349,7 @@ mod secondary_index_ops {
         // Transaction 2: Read via secondary index
         let tx2 = db.begin(&db, TXKind::Read);
         let status_query = Query::by_col(&table).add("status", "draft").encode()?;
-        let mut scan = ScanMode::open(status_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx2.tree);
         let result = scan.next().unwrap();
@@ -3352,7 +3369,7 @@ mod secondary_index_ops {
         // Transaction 4: Verify update via secondary index
         let tx4 = db.begin(&db, TXKind::Read);
         let new_status_query = Query::by_col(&table).add("status", "published").encode()?;
-        let mut scan = ScanMode::open(new_status_query, Compare::Ge, CursorDir::Next)
+        let mut scan = Scanner::open(new_status_query, Compare::Ge, CursorDir::Next)
             .unwrap()
             .into_iter(&tx4.tree);
         let result = scan.next().unwrap();
@@ -3374,9 +3391,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(58)
             .name("create_secondary")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("tag", TypeCol::BYTES)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("tag", TypeCol::Bytes)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3404,7 +3421,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data"));
@@ -3427,9 +3444,9 @@ mod secondary_index_ops {
         let mut table = TableBuilder::new()
             .id(58)
             .name("create_secondary")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("tag", TypeCol::BYTES)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("tag", TypeCol::Bytes)
+            .add_col("data", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -3464,7 +3481,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 1);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 1 tag_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("data_{i}"));
@@ -3481,7 +3498,7 @@ mod secondary_index_ops {
             assert_eq!(q.get_prefix(), 2);
             assert_eq!(q.get_tid(), 58);
 
-            let scan = ScanMode::prefix(q, &tx.tree, Compare::Eq)?.next().unwrap();
+            let scan = Scanner::prefix(q, &tx.tree)?.next().unwrap();
 
             assert_eq!(scan.0.to_string(), format!("58 2 data_{i} {i}"));
             assert_eq!(scan.1.to_string(), format!("tag_{i}"));

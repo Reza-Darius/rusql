@@ -5,6 +5,7 @@ use std::ops::Index;
 use tracing::{debug, error};
 use tracing_subscriber::registry::Data;
 
+use crate::database::btree::Compare;
 use crate::database::codec::*;
 use crate::database::tables::tables::{IdxKind, TableIndex};
 use crate::database::tables::{Key, Value};
@@ -217,8 +218,8 @@ impl Record {
     fn validate_data_types(&self, table: &Table) -> Result<()> {
         for (i, cell) in self.data.iter().enumerate() {
             let cell_type = match cell {
-                DataCell::Str(s) => TypeCol::BYTES,
-                DataCell::Int(_) => TypeCol::INTEGER,
+                DataCell::Str(s) => TypeCol::Bytes,
+                DataCell::Int(_) => TypeCol::Integer,
             };
             if table.cols[i].data_type != cell_type {
                 error!(expected=?table.cols[i].data_type, got=?cell_type, "Record doesnt match column");
@@ -298,6 +299,7 @@ impl Query {
             data: vec![],
             schema,
             index,
+            bound: None,
         }
     }
 
@@ -364,6 +366,7 @@ pub(crate) struct QueryIndex<'a> {
     data: Vec<DataCell>,
     schema: &'a Table,
     index: &'a TableIndex,
+    bound: Option<Bound>,
 }
 
 impl<'a> QueryIndex<'a> {
@@ -372,6 +375,11 @@ impl<'a> QueryIndex<'a> {
         self.data.push(value.into_cell());
         self
     }
+
+    // pub fn bound(mut self, bound: Bound) -> Self {
+    //     self.bound = Some(bound);
+    //     self
+    // }
 
     /// validates data type and constructs a key
     pub fn encode(self) -> Result<Key> {
@@ -393,6 +401,17 @@ impl<'a> QueryIndex<'a> {
 
         assert_eq!(v.len(), 0);
         assert!(k.len() > 0);
+
+        // if let Some(bound) = self.bound {
+        //     let mut buf = Vec::from(k.as_slice());
+
+        //     match bound {
+        //         Bound::Positive => buf.push(INFINITY_POS),
+        //         Bound::Negative => buf.push(INFINITY_NEG),
+        //     }
+        //     let k = Key::from_encoded_slice(buf.as_slice());
+        //     return Ok(k);
+        // };
 
         Ok(k)
     }
@@ -457,7 +476,7 @@ fn find_index<'b>(data: &HashMap<String, DataCell>, schema: &'b Table) -> Option
     idx
 }
 
-/// encodes datacells into key value pairs
+/// encodes datacells into key value pair
 ///
 /// `delim` marks the idx where keys and values get seperated, none puts everything into `Key` leaving `Value` empty
 fn encode_to_kv<'a, I>(tid: u32, prefix: u16, data: I, delim: Option<usize>) -> Result<(Key, Value)>
@@ -559,9 +578,9 @@ mod test {
             .name("mytable")
             .id(2)
             .pkey(2)
-            .add_col("greeter", TypeCol::BYTES)
-            .add_col("number", TypeCol::INTEGER)
-            .add_col("gretee", TypeCol::BYTES)
+            .add_col("greeter", TypeCol::Bytes)
+            .add_col("number", TypeCol::Integer)
+            .add_col("gretee", TypeCol::Bytes)
             .build(&mut tx)?;
 
         let s1 = "hello";
@@ -589,9 +608,9 @@ mod test {
             .name("mytable")
             .id(2)
             .pkey(2)
-            .add_col("greeter", TypeCol::BYTES)
-            .add_col("number", TypeCol::INTEGER)
-            .add_col("gretee", TypeCol::BYTES)
+            .add_col("greeter", TypeCol::Bytes)
+            .add_col("number", TypeCol::Integer)
+            .add_col("gretee", TypeCol::Bytes)
             .build(&mut tx)?;
 
         let q = Query::by_index(&table, &table.indices[0])
@@ -646,9 +665,9 @@ mod test {
             .name("mytable")
             .id(2)
             .pkey(1)
-            .add_col("greeter", TypeCol::BYTES)
-            .add_col("number", TypeCol::INTEGER)
-            .add_col("gretee", TypeCol::BYTES)
+            .add_col("greeter", TypeCol::Bytes)
+            .add_col("number", TypeCol::Integer)
+            .add_col("gretee", TypeCol::Bytes)
             .build(&mut tx)?;
 
         table.create_index("number")?;
@@ -685,9 +704,9 @@ mod test {
             .name("mytable")
             .id(2)
             .pkey(1)
-            .add_col("greeter", TypeCol::BYTES)
-            .add_col("number", TypeCol::INTEGER)
-            .add_col("gretee", TypeCol::BYTES)
+            .add_col("greeter", TypeCol::Bytes)
+            .add_col("number", TypeCol::Integer)
+            .add_col("gretee", TypeCol::Bytes)
             .build(&mut tx)?;
 
         table.create_index("number")?;
@@ -728,10 +747,10 @@ mod test {
             .name("mytable")
             .id(5)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("city", TypeCol::BYTES)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("city", TypeCol::Bytes)
+            .add_col("job", TypeCol::Bytes)
             .build(&mut tx)?;
 
         table.create_index("city")?;
@@ -776,10 +795,10 @@ mod test {
             .name("mytable")
             .id(5)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("city", TypeCol::BYTES)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("city", TypeCol::Bytes)
+            .add_col("job", TypeCol::Bytes)
             .build(&mut tx)?;
 
         table.create_index("city")?;
@@ -823,10 +842,10 @@ mod test {
             .name("mytable")
             .id(5)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("city", TypeCol::BYTES)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("city", TypeCol::Bytes)
+            .add_col("job", TypeCol::Bytes)
             .build(&mut tx)?;
 
         table.create_index("sec")?;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info};
 
 use crate::database::api::response::{DBResponse, FilteredRecord};
-use crate::database::btree::{Compare, ScanMode};
+use crate::database::btree::{Compare, Scanner};
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::tables::tables::{Table, TableIndex};
@@ -180,7 +180,7 @@ fn validate_select_columns<T: AsRef<str> + std::fmt::Debug>(
     Ok(col_indices)
 }
 
-fn get_scan(table: &Table, table_idx: &TableIndex, stmt_idx: &StatementIndex) -> Result<ScanMode> {
+fn get_scan(table: &Table, table_idx: &TableIndex, stmt_idx: &StatementIndex) -> Result<Scanner> {
     let key = Query::by_index(table, table_idx)
         .add(stmt_idx.expr.clone())
         .encode()?;
@@ -189,18 +189,14 @@ fn get_scan(table: &Table, table_idx: &TableIndex, stmt_idx: &StatementIndex) ->
 
     let scan = match stmt_idx.operator {
         Operator::Assign | Operator::Equal => {
-            ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
+            Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
         }
-        Operator::Lt => ScanMode::range((key.clone(), Compare::Lt), (key.clone(), Compare::Ge))?,
-        Operator::Le => ScanMode::range((key.clone(), Compare::Le), (key.clone(), Compare::Gt))?,
+        Operator::Lt => Scanner::range((key.clone(), Compare::Lt), (key.clone(), Compare::Ge))?,
+        Operator::Le => Scanner::range((key.clone(), Compare::Le), (key.clone(), Compare::Gt))?,
 
-        Operator::Gt => ScanMode::range((key.clone(), Compare::Gt), (key.clone(), Compare::Le))?,
-        Operator::Ge => ScanMode::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?,
-        // Operator::Assign | Operator::Equal => ScanMode::open(key, Compare::Ge)?,
-        // Operator::Lt => ScanMode::open(key, Compare::Lt)?,
-        // Operator::Le => ScanMode::open(key, Compare::Le)?,
-        // Operator::Gt => ScanMode::open(key, Compare::Gt)?,
-        // Operator::Ge => ScanMode::open(key, Compare::Ge)?,
+        Operator::Gt => Scanner::range((key.clone(), Compare::Gt), (key.clone(), Compare::Le))?,
+        Operator::Ge => Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?,
+
         _ => unreachable!("invalid operator were already filtered out"),
     };
 
@@ -271,7 +267,7 @@ fn select_columns(
                 debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
 
                 let key = Query::by_tid_prefix(table, index.prefix);
-                let res: Vec<FilteredRecord> = ScanMode::prefix(key, &tx.tree, Compare::Eq)?
+                let res: Vec<FilteredRecord> = Scanner::prefix(key, &tx.tree)?
                     .filter_map(|(k, v)| Record::decode_with_index(k, v, index, table).ok()) // reorder into primary row layout
                     .map(|record| filter_columns(record, col_indices.as_slice()))
                     .limit(stmt)
@@ -352,9 +348,9 @@ mod execute_test {
         let table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("id", TypeCol::Integer)
             .pkey(1)
             .build(&mut tx)?;
 
@@ -380,10 +376,10 @@ mod execute_test {
         let mut table = TableBuilder::new()
             .id(3)
             .name("mytable")
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
-            .add_col("job", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("job", TypeCol::Bytes)
             .pkey(1)
             .build(&mut tx)?;
 

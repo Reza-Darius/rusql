@@ -1,3 +1,4 @@
+use std::i64;
 use std::rc::Rc;
 use std::{collections::HashSet, ops::Deref};
 
@@ -151,7 +152,19 @@ impl ValueObject {
                     Ok(())
                 }
             }
-            ValueObject::Int(_) => Ok(()),
+            ValueObject::Int(i) => {
+                if i64::MAX == *i || i64::MIN == *i {
+                    error!(
+                        "validation error: Integer cant be larger than max i64 - 1 or smaller than min i64 + 1"
+                    );
+                    Err(ParseError::ValidationError(
+                        "validation error: Integer cant be larger than i64 - 1",
+                    )
+                    .into())
+                } else {
+                    Ok(())
+                }
+            }
         }
     }
 }

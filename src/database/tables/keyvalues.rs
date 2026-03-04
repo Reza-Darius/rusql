@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tracing::debug;
 
+use crate::database::btree::Compare;
 use crate::database::codec::*;
 use crate::database::tables::tables::TypeCol;
 use crate::database::types::DataCell;
@@ -59,6 +60,16 @@ impl Key {
 
     pub fn as_slice(&self) -> &[u8] {
         &self.0[..]
+    }
+
+    pub fn append_bound(&self, bound: Bound) -> Self {
+        let mut buf = Vec::from(self.as_slice());
+
+        match bound {
+            Bound::Positive => buf.push(INFINITY_POS),
+            Bound::Negative => buf.push(INFINITY_NEG),
+        }
+        Key::from_encoded_slice(buf.as_slice())
     }
 
     /// utility function for unit tests
@@ -187,13 +198,13 @@ impl Iterator for KeyIter {
             return None;
         }
         match TypeCol::from_u8(self.data.0[self.count]) {
-            Some(TypeCol::BYTES) => {
+            Some(TypeCol::Bytes) => {
                 let str = String::decode(&self.data.0[self.count..]);
                 self.count += TYPE_LEN + STR_PRE_LEN + str.len();
 
                 Some(DataCell::Str(str))
             }
-            Some(TypeCol::INTEGER) => {
+            Some(TypeCol::Integer) => {
                 let int = i64::decode(&self.data.0[self.count..]);
                 self.count += TYPE_LEN + INT_LEN;
 
@@ -321,7 +332,7 @@ impl<'a> Iterator for KeyRefIter<'a> {
         }
 
         match TypeCol::from_u8(buf[self.count]) {
-            Some(TypeCol::BYTES) => {
+            Some(TypeCol::Bytes) => {
                 let len = (&buf[self.count + TYPE_LEN..]).read_u32() as usize;
                 let offset = self.count + TYPE_LEN + STR_PRE_LEN;
 
@@ -332,7 +343,7 @@ impl<'a> Iterator for KeyRefIter<'a> {
                 Some(DataCellRef::Str(s))
             }
 
-            Some(TypeCol::INTEGER) => {
+            Some(TypeCol::Integer) => {
                 let int = i64::decode(&buf[self.count..]);
 
                 self.count += TYPE_LEN + INT_LEN;
@@ -402,12 +413,12 @@ impl Iterator for ValueIter {
             return None;
         }
         match TypeCol::from_u8(self.data.0[self.count]) {
-            Some(TypeCol::BYTES) => {
+            Some(TypeCol::Bytes) => {
                 let str = String::decode(&self.data.0[self.count..]);
                 self.count += TYPE_LEN + STR_PRE_LEN + str.len();
                 Some(DataCell::Str(str))
             }
-            Some(TypeCol::INTEGER) => {
+            Some(TypeCol::Integer) => {
                 let int = i64::decode(&self.data.0[self.count..]);
                 self.count += TYPE_LEN + INT_LEN;
                 Some(DataCell::Int(int))
@@ -452,7 +463,7 @@ impl<'a> Iterator for ValueIterRef<'a> {
         }
 
         match TypeCol::from_u8(buf[self.count]) {
-            Some(TypeCol::BYTES) => {
+            Some(TypeCol::Bytes) => {
                 let len = (&buf[self.count + TYPE_LEN..]).read_u32() as usize;
                 let offset = self.count + TYPE_LEN + STR_PRE_LEN;
 
@@ -462,7 +473,7 @@ impl<'a> Iterator for ValueIterRef<'a> {
                 self.count += TYPE_LEN + STR_PRE_LEN + len;
                 Some(DataCellRef::Str(s))
             }
-            Some(TypeCol::INTEGER) => {
+            Some(TypeCol::Integer) => {
                 let int = i64::decode(&buf[self.count..]);
 
                 self.count += TYPE_LEN + INT_LEN;
@@ -514,14 +525,13 @@ fn cell_cmp(a: &[u8], b: &[u8]) -> Ordering {
         let ta = val_a.read_u8();
         let tb = val_b.read_u8();
 
-        debug_assert_eq!(ta, tb);
         match ta.cmp(&tb) {
             Ordering::Equal => {}
             o => return o,
         }
 
         match TypeCol::from_u8(ta) {
-            Some(TypeCol::BYTES) => {
+            Some(TypeCol::Bytes) => {
                 let len_a = val_a.read_u32() as usize;
                 let len_b = val_b.read_u32() as usize;
                 let min = min(len_a, len_b);
@@ -540,7 +550,7 @@ fn cell_cmp(a: &[u8], b: &[u8]) -> Ordering {
                     o => return o,
                 }
             }
-            Some(TypeCol::INTEGER) => {
+            Some(TypeCol::Integer) => {
                 let int_a = val_a.read_i64();
                 let int_b = val_b.read_i64();
 
@@ -549,8 +559,8 @@ fn cell_cmp(a: &[u8], b: &[u8]) -> Ordering {
                 });
 
                 // flipping the sign bit for comparison
-                let in_a = int_a as u64 ^ 0x8000_0000_0000_0000;
-                let in_b = int_b as u64 ^ 0x8000_0000_0000_0000;
+                let int_a = int_a as u64 ^ 0x8000_0000_0000_0000;
+                let int_b = int_b as u64 ^ 0x8000_0000_0000_0000;
 
                 match int_a.cmp(&int_b) {
                     Ordering::Equal => {}
@@ -643,9 +653,9 @@ mod test {
             .name("mytable")
             .id(2)
             .pkey(2)
-            .add_col("greeter", TypeCol::BYTES)
-            .add_col("number", TypeCol::INTEGER)
-            .add_col("gretee", TypeCol::BYTES)
+            .add_col("greeter", TypeCol::Bytes)
+            .add_col("number", TypeCol::Integer)
+            .add_col("gretee", TypeCol::Bytes)
             .build(&mut tx)?;
 
         let kv1 = Record::new()

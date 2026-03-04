@@ -9,7 +9,7 @@ use tracing::instrument;
 use crate::database::btree::cursor::ScanIter;
 use crate::database::errors::ScanError;
 use crate::database::{
-    btree::{cursor::ScanMode, node::*},
+    btree::{cursor::Scanner, node::*},
     errors::{Error, Result},
     helper::debug_print_tree,
     pager::{NodeFlag, Pager},
@@ -68,7 +68,7 @@ pub(crate) trait Tree {
 
     fn get(&self, key: Key) -> Option<Value>;
     fn set(&mut self, key: Key, value: Value, flag: SetFlag) -> Result<SetResponse>;
-    fn scan(&self, mode: ScanMode) -> Result<ScanIter<'_, Self::Codec>>;
+    fn scan(&self, mode: Scanner) -> Result<ScanIter<'_, Self::Codec>>;
     fn delete(&mut self, key: Key) -> Result<DeleteResponse>;
 
     fn set_root(&mut self, ptr: Option<Pointer>);
@@ -219,7 +219,7 @@ impl<P: Pager> Tree for BTree<P> {
         self.root_ptr = ptr
     }
     // entry point for scan query
-    fn scan(&self, mode: ScanMode) -> Result<ScanIter<'_, P>> {
+    fn scan(&self, mode: Scanner) -> Result<ScanIter<'_, P>> {
         if self.root_ptr.is_none() {
             return Err(Error::SearchError("tree is empty".to_string()));
         }

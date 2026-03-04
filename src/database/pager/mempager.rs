@@ -6,7 +6,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use tracing::{debug, error};
 
 use crate::database::{
-    btree::{BTree, DeleteResponse, ScanMode, SetFlag, SetResponse, Tree},
+    btree::{BTree, DeleteResponse, Scanner, SetFlag, SetResponse, Tree},
     errors::{Error, Result},
     pager::Pager,
     tables::{Key, Record, Value},
@@ -18,7 +18,7 @@ use crate::database::{
 /// deprecated, for mempager testing only
 pub(crate) trait KVEngine {
     fn get(&self, key: Key) -> Result<Value>;
-    fn scan(&self, mode: ScanMode) -> Result<Vec<Record>>;
+    fn scan(&self, mode: Scanner) -> Result<Vec<Record>>;
     fn set(&self, key: Key, val: Value, flag: SetFlag) -> Result<()>;
     fn delete(&self, key: Key) -> Result<()>;
 }
@@ -43,7 +43,7 @@ impl KVEngine for MemPager {
         Ok(())
     }
 
-    fn scan(&self, mode: crate::database::btree::ScanMode) -> Result<Vec<Record>> {
+    fn scan(&self, mode: crate::database::btree::Scanner) -> Result<Vec<Record>> {
         Ok(self
             .pager
             .tree

@@ -65,11 +65,11 @@ impl MetaTable {
             cols: vec![
                 Column {
                     title: META_TABLE_COL1.to_string(),
-                    data_type: TypeCol::BYTES,
+                    data_type: TypeCol::Bytes,
                 },
                 Column {
                     title: META_TABLE_COL2.to_string(),
-                    data_type: TypeCol::INTEGER,
+                    data_type: TypeCol::Integer,
                 },
             ],
             pkeys: META_TABLE_PKEYS,
@@ -100,11 +100,11 @@ impl TDefTable {
             cols: vec![
                 Column {
                     title: DEF_TABLE_COL1.to_string(),
-                    data_type: TypeCol::BYTES,
+                    data_type: TypeCol::Bytes,
                 },
                 Column {
                     title: DEF_TABLE_COL2.to_string(),
-                    data_type: TypeCol::BYTES,
+                    data_type: TypeCol::Bytes,
                 },
             ],
             pkeys: DEF_TABLE_PKEYS,
@@ -296,8 +296,8 @@ impl Table {
             return false;
         }
         let cell_type = match data.into() {
-            DataCellRef::Int(_) => TypeCol::INTEGER,
-            DataCellRef::Str(_) => TypeCol::BYTES,
+            DataCellRef::Int(_) => TypeCol::Integer,
+            DataCellRef::Str(_) => TypeCol::Bytes,
         };
 
         return self
@@ -464,15 +464,15 @@ pub struct Column {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum TypeCol {
-    BYTES = 1,
-    INTEGER = 2,
+    Bytes = 1,
+    Integer = 2,
 }
 
 impl TypeCol {
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            1 => Some(TypeCol::BYTES),
-            2 => Some(TypeCol::INTEGER),
+            1 => Some(TypeCol::Bytes),
+            2 => Some(TypeCol::Integer),
             _ => None,
         }
     }
@@ -501,9 +501,9 @@ mod secondary_index_tests {
             .name("users")
             .id(10)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("email", TypeCol::BYTES)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("email", TypeCol::Bytes)
+            .add_col("name", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -533,10 +533,10 @@ mod secondary_index_tests {
             .name("products")
             .id(11)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("category", TypeCol::BYTES)
-            .add_col("price", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("category", TypeCol::Bytes)
+            .add_col("price", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 
@@ -573,8 +573,8 @@ mod secondary_index_tests {
             .name("test_table")
             .id(12)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("value", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("value", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -598,8 +598,8 @@ mod secondary_index_tests {
             .name("duplicates")
             .id(13)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("email", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("email", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -626,7 +626,7 @@ mod secondary_index_tests {
             .name("empty_idx")
             .id(14)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 
@@ -648,8 +648,8 @@ mod secondary_index_tests {
             .name("remove_test")
             .id(15)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("username", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("username", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -678,8 +678,8 @@ mod secondary_index_tests {
             .name("no_remove")
             .id(16)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("data", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("data", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -702,7 +702,7 @@ mod secondary_index_tests {
             .name("protect_primary")
             .id(17)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 
@@ -725,7 +725,7 @@ mod secondary_index_tests {
             .name("empty_remove")
             .id(18)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 
@@ -747,9 +747,9 @@ mod secondary_index_tests {
             .name("record_test")
             .id(19)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("status", TypeCol::BYTES)
-            .add_col("description", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("status", TypeCol::Bytes)
+            .add_col("description", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -789,10 +789,10 @@ mod secondary_index_tests {
             .name("multi_idx")
             .id(20)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("name", TypeCol::BYTES)
-            .add_col("city", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("name", TypeCol::Bytes)
+            .add_col("city", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 
@@ -835,10 +835,10 @@ mod secondary_index_tests {
             .name("sequential_test")
             .id(21)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("col_a", TypeCol::BYTES)
-            .add_col("col_b", TypeCol::BYTES)
-            .add_col("col_c", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("col_a", TypeCol::Bytes)
+            .add_col("col_b", TypeCol::Bytes)
+            .add_col("col_c", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -900,11 +900,11 @@ mod secondary_index_tests {
             .name("prefix_test")
             .id(22)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("a", TypeCol::BYTES)
-            .add_col("b", TypeCol::BYTES)
-            .add_col("c", TypeCol::BYTES)
-            .add_col("d", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("a", TypeCol::Bytes)
+            .add_col("b", TypeCol::Bytes)
+            .add_col("c", TypeCol::Bytes)
+            .add_col("d", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -943,9 +943,9 @@ mod secondary_index_tests {
             .name("serialized_table")
             .id(23)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("email", TypeCol::BYTES)
-            .add_col("name", TypeCol::BYTES)
+            .add_col("id", TypeCol::Integer)
+            .add_col("email", TypeCol::Bytes)
+            .add_col("name", TypeCol::Bytes)
             .build(&mut tx)
             .unwrap();
 
@@ -981,10 +981,10 @@ mod secondary_index_tests {
             .name("columns_match")
             .id(24)
             .pkey(1)
-            .add_col("id", TypeCol::INTEGER)
-            .add_col("first_name", TypeCol::BYTES)
-            .add_col("last_name", TypeCol::BYTES)
-            .add_col("age", TypeCol::INTEGER)
+            .add_col("id", TypeCol::Integer)
+            .add_col("first_name", TypeCol::Bytes)
+            .add_col("last_name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
             .build(&mut tx)
             .unwrap();
 

@@ -16,6 +16,14 @@ example:
 [1B TYPE][8B INT][1B TYPE][4B STRLEN][nB STR]
  */
 
+// special type bytes
+pub(crate) enum Bound {
+    Positive,
+    Negative,
+}
+pub(crate) const INFINITY_POS: u8 = 0xff;
+pub(crate) const INFINITY_NEG: u8 = 0x00;
+
 pub(crate) const TYPE_LEN: usize = std::mem::size_of::<u8>();
 
 pub(crate) const STR_PRE_LEN: usize = std::mem::size_of::<u32>();
@@ -40,7 +48,7 @@ impl Codec for String {
         let mut buf = unsafe { buf.assume_init() };
         let buf_ref = Arc::get_mut(&mut buf).unwrap();
 
-        buf_ref[0] = TypeCol::BYTES as u8;
+        buf_ref[0] = TypeCol::Bytes as u8;
         buf_ref[TYPE_LEN..TYPE_LEN + STR_PRE_LEN].copy_from_slice(&(len as u32).to_le_bytes());
         buf_ref[TYPE_LEN + STR_PRE_LEN..].copy_from_slice(self.as_bytes());
 
@@ -54,7 +62,7 @@ impl Codec for String {
     ///
     /// makes an allocation
     fn decode(data: &[u8]) -> String {
-        debug_assert_eq!(data[0], TypeCol::BYTES as u8);
+        debug_assert_eq!(data[0], TypeCol::Bytes as u8);
 
         let len =
             u32::from_le_bytes(data[TYPE_LEN..TYPE_LEN + STR_PRE_LEN].try_into().unwrap()) as usize;
@@ -76,7 +84,7 @@ impl Codec for i64 {
     fn encode(&self) -> Arc<[u8]> {
         let mut buf = [0u8; TYPE_LEN + INT_LEN];
 
-        buf[0] = TypeCol::INTEGER as u8;
+        buf[0] = TypeCol::Integer as u8;
         buf[TYPE_LEN..].copy_from_slice(&self.to_le_bytes());
 
         let out = Arc::new(buf);
@@ -88,7 +96,7 @@ impl Codec for i64 {
     ///
     /// (1B Type)(8B i64 le Int)
     fn decode(data: &[u8]) -> Self {
-        debug_assert_eq!(data[0], TypeCol::INTEGER as u8);
+        debug_assert_eq!(data[0], TypeCol::Integer as u8);
         debug_assert!(data.len() >= TYPE_LEN + INT_LEN);
         i64::from_le_bytes(data[TYPE_LEN..TYPE_LEN + INT_LEN].try_into().unwrap())
     }
