@@ -49,10 +49,6 @@ impl TX {
         self.tree.set(key, value, flag)
     }
 
-    fn tree_scan(&self, mode: Scanner) -> Result<ScanIter<'_, TXStore>> {
-        self.tree.scan(mode)
-    }
-
     fn tree_delete(&mut self, key: Key) -> Result<DeleteResponse> {
         self.key_range.add(&key);
         self.tree.delete(key)
@@ -266,7 +262,11 @@ impl TX {
         let hi = key.with_bound(Bound::Positive);
 
         info!("full table scan with keys:\nlo {lo:?}\nhi {hi:?}");
-        Ok(Scanner::range((lo, Compare::Gt), (hi, Compare::Gt))?.into_iter(&self.tree))
+        Ok(Scanner::range(
+            (lo, Compare::Gt),
+            (hi, Compare::Gt),
+            &self.tree,
+        )?)
     }
 
     /// counts all unique rows inside a table
@@ -282,7 +282,7 @@ impl TX {
         let lo = key.with_bound(Bound::Negative);
         let hi = key.with_bound(Bound::Negative);
         // let scan = ScanMode::prefix(key, &self.tree, Compare::Eq)?;
-        let scan = Scanner::range((lo, Compare::Gt), (hi, Compare::Lt))?.into_iter(&self.tree);
+        let scan = Scanner::range((lo, Compare::Gt), (hi, Compare::Lt), &self.tree)?;
 
         Ok(scan.count() as u32)
     }
@@ -1059,9 +1059,8 @@ mod scan {
         let lo_key = Query::by_col(&table).add("id", 5i64).encode()?;
         let hi_key = Query::by_col(&table).add("id", 15i64).encode()?;
 
-        let range = Scanner::range((lo_key, Compare::Ge), (hi_key, Compare::Gt))?;
-
-        let res: Vec<_> = tx.tree_scan(range)?.collect_records();
+        let res = Scanner::range((lo_key, Compare::Ge), (hi_key, Compare::Gt), &tx.tree)?
+            .collect_records();
 
         assert_eq!(res.len(), 11); // 5 through 15 inclusive
         assert_eq!(res[0].to_string(), "5 name_5");
@@ -1297,9 +1296,12 @@ mod scan {
 
         // Scan from beginning
         let key = Query::by_col(&table).add("id", 1).encode()?;
-        let res = Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?
-            .into_iter(&tx.tree)
-            .collect_records();
+        let res = Scanner::range(
+            (key.clone(), Compare::Ge),
+            (key.clone(), Compare::Lt),
+            &tx.tree,
+        )?
+        .collect_records();
 
         // Should have 7 records
         assert_eq!(res.len(), 7);

@@ -139,20 +139,45 @@ impl std::fmt::Display for Key {
 
         write!(f, "{}", self.get_tid())?;
 
-        if len < TID_LEN + PREFIX_LEN {
+        if len == TID_LEN + 1 {
+            match self.0[TID_LEN] {
+                0xFF => write!(f, " INFINITY_POS")?,
+                0x00 => write!(f, " INFINITY_NEG")?,
+                _ => unreachable!("it can only be a bound byte"),
+            };
             return Ok(());
         }
 
         write!(f, " {}", self.get_prefix())?;
 
-        if len <= TID_LEN + PREFIX_LEN + 1 {
+        if len == TID_LEN + PREFIX_LEN + 1 {
+            match self.0[TID_LEN + PREFIX_LEN] {
+                0xFF => write!(f, " INFINITY_POS")?,
+                0x00 => write!(f, " INFINITY_NEG")?,
+                _ => unreachable!("it can only be a bound byte"),
+            };
             return Ok(());
         }
 
+        let mut len = TID_LEN + PREFIX_LEN;
         for cell in self.iter() {
             match cell {
-                DataCellRef::Str(s) => write!(f, " {}", s)?,
-                DataCellRef::Int(i) => write!(f, " {}", i)?,
+                DataCellRef::Str(s) => {
+                    len += s.len() + TYPE_LEN + STR_PRE_LEN;
+                    write!(f, " {}", s)?
+                }
+                DataCellRef::Int(i) => {
+                    len += TYPE_LEN + INT_LEN;
+                    write!(f, " {}", i)?
+                }
+            };
+        }
+
+        if self.len() == len + 1 {
+            match self.0[len] {
+                0xFF => write!(f, " INFINITY_POS")?,
+                0x00 => write!(f, " INFINITY_NEG")?,
+                _ => unreachable!("it can only be a bound byte"),
             };
         }
 
@@ -581,7 +606,6 @@ fn cell_cmp(a: &[u8], b: &[u8]) -> Ordering {
 
 // assumes the slice is an encoded key
 fn key_cmp(mut key_a: &[u8], mut key_b: &[u8]) -> Ordering {
-    debug!(key_1=?key_a, key_2=?key_b);
     let tid_a = key_a.read_u32();
     let tid_b = key_b.read_u32();
 

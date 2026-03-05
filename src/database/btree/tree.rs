@@ -68,7 +68,6 @@ pub(crate) trait Tree {
 
     fn get(&self, key: Key) -> Option<Value>;
     fn set(&mut self, key: Key, value: Value, flag: SetFlag) -> Result<SetResponse>;
-    fn scan(&self, mode: Scanner) -> Result<ScanIter<'_, Self::Codec>>;
     fn delete(&mut self, key: Key) -> Result<DeleteResponse>;
 
     fn set_root(&mut self, ptr: Option<Pointer>);
@@ -218,13 +217,7 @@ impl<P: Pager> Tree for BTree<P> {
     fn set_root(&mut self, ptr: Option<Pointer>) {
         self.root_ptr = ptr
     }
-    // entry point for scan query
-    fn scan(&self, mode: Scanner) -> Result<ScanIter<'_, P>> {
-        if self.root_ptr.is_none() {
-            return Err(Error::SearchError("tree is empty".to_string()));
-        }
-        Ok(mode.into_iter(self))
-    }
+
 }
 
 impl<P: Pager> BTree<P> {

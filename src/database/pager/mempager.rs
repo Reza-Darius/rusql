@@ -18,7 +18,6 @@ use crate::database::{
 /// deprecated, for mempager testing only
 pub(crate) trait KVEngine {
     fn get(&self, key: Key) -> Result<Value>;
-    fn scan(&self, mode: Scanner) -> Result<Vec<Record>>;
     fn set(&self, key: Key, val: Value, flag: SetFlag) -> Result<()>;
     fn delete(&self, key: Key) -> Result<()>;
 }
@@ -41,16 +40,6 @@ impl KVEngine for MemPager {
     fn delete(&self, key: Key) -> Result<()> {
         self.pager.delete(key)?;
         Ok(())
-    }
-
-    fn scan(&self, mode: crate::database::btree::Scanner) -> Result<Vec<Record>> {
-        Ok(self
-            .pager
-            .tree
-            .borrow()
-            .scan(mode)
-            .map_err(|e| Error::SearchError(format!("scan error {e}")))?
-            .collect_records())
     }
 }
 

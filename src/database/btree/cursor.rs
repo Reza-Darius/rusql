@@ -17,10 +17,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct Scanner {
-    lo: (Key, Compare),
-    hi: (Key, Compare),
-}
+pub(crate) struct Scanner;
 
 impl Scanner {
     pub fn prefix<'a, P: Pager>(key: Key, tree: &'a BTree<P>) -> ScanIter<'a, P> {
@@ -45,7 +42,9 @@ impl Scanner {
         }
     }
 
-    /// convenience function for single key lookups, should not be used for composite keys like secondary indices
+    /// convenience function for single column key lookups, should not be used for composite keys like secondary indices!
+    ///
+    /// returns keys while the predicate evaluates to true
     pub fn open<'a, P: Pager>(key: Key, pred: Compare, tree: &'a BTree<P>) -> ScanIter<'a, P> {
         let hi = key.clone();
         let tid = key.get_tid();
@@ -83,7 +82,11 @@ impl Scanner {
     /// setting the hi predicate to Eq will act as a prefix scan
     ///
     /// ScanMode is lazy, and wont yield anything until [`ScanMode::into_iter`] is called, which then performs read operations
-    pub fn range(lo: (Key, Compare), hi: (Key, Compare)) -> Result<Self> {
+    pub fn range<'a, P: Pager>(
+        lo: (Key, Compare),
+        hi: (Key, Compare),
+        tree: &'a BTree<P>,
+    ) -> Result<ScanIter<'a, P>> {
         let tid = lo.0.get_tid();
         if tid != hi.0.get_tid() {
             error!("invalid input: keys from different tables provided");
@@ -93,30 +96,22 @@ impl Scanner {
             .into());
         }
 
-        Ok(Scanner { lo, hi })
-    }
-
-    /// turns scanmode into iterator by performing tree read operations
-    pub fn into_iter<'a, P: Pager>(self, tree: &'a BTree<P>) -> ScanIter<'a, P> {
-        let lo = self.lo;
-        let hi = self.hi;
-        let tid = lo.0.get_tid();
         if let Some(cursor) = seek(tree, &lo.0, lo.1) {
-            ScanIter {
+            Ok(ScanIter {
                 cursor,
                 tid,
                 finished: false,
                 hi: hi.0,
                 pred: hi.1,
-            }
+            })
         } else {
-            ScanIter {
+            Ok(ScanIter {
                 cursor: Cursor::new(tree),
                 tid,
                 finished: true,
                 hi: hi.0,
                 pred: hi.1,
-            }
+            })
         }
     }
 }
@@ -547,7 +542,7 @@ mod test {
         let k_lo = "table 1 1".into();
         let k_hi = "table 1 5".into();
         let tree_ref = tree.pager.tree.borrow();
-        let res = Scanner::range((k_lo, Compare::Ge), (k_hi, Compare::Gt))?.into_iter(&*tree_ref);
+        let res = Scanner::range((k_lo, Compare::Ge), (k_hi, Compare::Gt), &*tree_ref)?;
 
         let mut recs = res.collect_records().into_iter();
 

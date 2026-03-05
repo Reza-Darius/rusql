@@ -5,8 +5,10 @@ use std::sync::Arc;
 use tracing::{debug, error, info};
 
 use crate::database::api::response::{DBResponse, FilteredRecord};
-use crate::database::btree::{Compare, Scanner};
+use crate::database::btree::{BTree, Compare, ScanIter, Scanner};
+use crate::database::codec::Bound;
 use crate::database::errors::{ExecError, Result};
+use crate::database::pager::Pager;
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::tables::tables::{Table, TableIndex};
 use crate::database::tables::{Query, Record};
@@ -96,11 +98,10 @@ fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Ve
         debug!(?table_idx, ?stmt_idx, "index for WHERE clause");
 
         // query the database
-        let scan = get_scan(table, table_idx, stmt_idx)?;
+        let scan = scan_db(table, table_idx, stmt_idx, &tx.tree)?;
 
         // filter results against non-indexed WHERE clauses
         let iter = scan
-            .into_iter(&tx.tree)
             .filter_map(|(k, v)| Record::decode_with_index(k, v, table_idx, table).ok()) // reorder into primary row layout
             .filter(|rec| filter_record(rec, &where_col_map));
 
@@ -120,7 +121,6 @@ fn select_where(tx: &mut TX, table: &Table, stmt: &SelectStatement) -> Result<Ve
 
     // filter results against WHERE clauses
     let iter = scan
-        .into_iter()
         .map(Record::from_kv)
         .filter(|rec| filter_record(rec, &where_col_map));
 
@@ -180,22 +180,46 @@ fn validate_select_columns<T: AsRef<str> + std::fmt::Debug>(
     Ok(col_indices)
 }
 
-fn get_scan(table: &Table, table_idx: &TableIndex, stmt_idx: &StatementIndex) -> Result<Scanner> {
+/// scans the database for a given index, should only be called for secondary indices
+fn scan_db<'a, P: Pager>(
+    table: &Table,
+    table_idx: &TableIndex,
+    stmt_idx: &StatementIndex,
+    tree: &'a BTree<P>,
+) -> Result<ScanIter<'a, P>> {
     let key = Query::by_index(table, table_idx)
         .add(stmt_idx.expr.clone())
         .encode()?;
 
+    // key to stop at the last key inside an index
+    let idx_upper_bound_key =
+        Query::by_tid_prefix(table, table_idx.prefix).with_bound(Bound::Positive);
+
     debug!(key=%key, "scanning with key");
 
     let scan = match stmt_idx.operator {
-        Operator::Assign | Operator::Equal => {
-            Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Gt))?
-        }
-        Operator::Lt => Scanner::range((key.clone(), Compare::Lt), (key.clone(), Compare::Ge))?,
-        Operator::Le => Scanner::range((key.clone(), Compare::Le), (key.clone(), Compare::Gt))?,
+        Operator::Assign | Operator::Equal => Scanner::prefix(key, tree),
+        Operator::Lt => Scanner::range(
+            (key.clone(), Compare::Lt),
+            (key.with_bound(Bound::Negative), Compare::Ge),
+            tree,
+        )?,
+        Operator::Le => Scanner::range(
+            (key.clone(), Compare::Le),
+            (key.with_bound(Bound::Positive), Compare::Gt),
+            tree,
+        )?,
 
-        Operator::Gt => Scanner::range((key.clone(), Compare::Gt), (key.clone(), Compare::Le))?,
-        Operator::Ge => Scanner::range((key.clone(), Compare::Ge), (key.clone(), Compare::Lt))?,
+        Operator::Gt => Scanner::range(
+            (key.with_bound(Bound::Positive), Compare::Gt),
+            (idx_upper_bound_key, Compare::Gt),
+            tree,
+        )?,
+        Operator::Ge => Scanner::range(
+            (key.with_bound(Bound::Negative), Compare::Ge),
+            (idx_upper_bound_key, Compare::Gt),
+            tree,
+        )?,
 
         _ => unreachable!("invalid operator were already filtered out"),
     };
@@ -512,6 +536,30 @@ mod execute_test {
 
         println!("{query}\n{}", res.unwrap());
 
+        let query = r#"SELECT * FROM mytable WHERE job >= "clerk";"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 4);
+
+        println!("{query}\n{}", res.unwrap());
+
+        let query = r#"SELECT * FROM mytable WHERE job < "clerk";"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0));
+        assert!(res.is_ok());
+        let rows = res.as_ref().unwrap().get_rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0][0], "5");
+        assert_eq!(&rows[0][1], "Jane");
+        assert_eq!(&rows[0][2], "25");
+        assert_eq!(&rows[0][3], "artist");
+
+        println!("{query}\n{}", res.unwrap());
+
         let query = r#"SELECT * FROM mytable WHERE age >= 20, job = "clerk";"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0));
@@ -533,6 +581,7 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
 
         assert_eq!(rows.len(), 5);
+        println!("{query}\n{}", res.unwrap());
 
         let query = r#"SELECT * FROM mytable WHERE age < 20;"#;
         let mut stmt = Parser::parse(query)?;
@@ -541,6 +590,7 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
+        println!("{query}\n{}", res.unwrap());
 
         let query = r#"SELECT * FROM mytable WHERE age > 20;"#;
         let mut stmt = Parser::parse(query)?;
@@ -549,6 +599,7 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
+        println!("{query}\n{}", res.unwrap());
 
         let query = r#"SELECT * FROM mytable WHERE age >= 20;"#;
         let mut stmt = Parser::parse(query)?;
@@ -557,6 +608,7 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
+        println!("{query}\n{}", res.unwrap());
 
         let query = r#"SELECT * FROM mytable WHERE age <= 20;"#;
         let mut stmt = Parser::parse(query)?;
@@ -565,6 +617,7 @@ mod execute_test {
         let rows = res.as_ref().unwrap().get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
+        println!("{query}\n{}", res.unwrap());
 
         cleanup_file(path);
         Ok(())
