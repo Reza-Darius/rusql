@@ -93,9 +93,11 @@ impl StatementColumns {
 
             for col in cols.iter() {
                 if is_valid_col(col).is_err() {
+                    error!("invalid columns");
                     return Err(ParseError::ValidationError("invalid columns").into());
                 }
                 if set.contains(col) {
+                    error!("cant list duplicate columns");
                     return Err(ParseError::ValidationError("cant list duplicate columns").into());
                 }
                 set.insert(col);

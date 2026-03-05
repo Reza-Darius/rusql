@@ -1,4 +1,4 @@
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::database::errors::{ParseError, Result};
 use crate::interpreter::parser::parser::*;
@@ -123,18 +123,34 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct InsertStatement {
-    table_name: String,
-    columns: StatementColumns,
-    values: Vec<ValueObject>,
+    pub table_name: String,
+    pub columns: StatementColumns,
+    pub values: Vec<ValueObject>,
 }
 
 impl InsertStatement {
     fn validate(&self) -> Result<()> {
         is_valid_identifier(&self.table_name)?;
+
+        if self.columns == StatementColumns::Wildcard {
+            error!("wildcard is not permitted for insert statements");
+            return Err(ParseError::ValidationError(
+                "wildcard is not permitted for insert statements",
+            )
+            .into());
+        }
+
         self.columns.is_valid()?;
+
         for value in self.values.iter() {
             value.is_valid()?;
         }
+
+        if self.columns.len() != self.values.len() {
+            error!("values amount doesnt match column amount");
+            return Err(ParseError::ParseError("given values dont match provided columns").into());
+        }
+
         Ok(())
     }
 }
@@ -147,10 +163,6 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
 
     let table_name = parse_identifier(parser)?;
     let columns = parse_columns(parser)?;
-
-    if matches!(columns, StatementColumns::Wildcard) {
-        return Err(ParseError::ParseError("wildcard cant be used in insert statements").into());
-    }
 
     // parsing values
     parse_token(parser, Token::Keyword(Keyword::Values))?;
@@ -169,7 +181,10 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
                 parser.next();
                 continue;
             }
-            Token::Seperator(Seperator::LParen) => {
+            // expression
+            Token::Seperator(Seperator::LParen)
+            | Token::Value(Value::Int(_))
+            | Token::Value(Value::Str(_)) => {
                 let expr = parse_expression_statement(parser)
                     .ok_or_else(|| ParseError::ParseError("expected expression"))?;
 
@@ -191,10 +206,6 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
                 .into());
             }
         }
-    }
-
-    if columns.len() != values.len() {
-        return Err(ParseError::ParseError("given values dont match provided columns").into());
     }
 
     if let Some(t) = parser.next()

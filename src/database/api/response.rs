@@ -5,15 +5,14 @@ use crate::{
         tables::{Record, tables::Table},
         types::DataCell,
     },
-    interpreter::{SelectStatement, StatementColumns},
+    interpreter::StatementColumns,
 };
 
 #[derive(Debug, Default)]
 pub struct DBResponse {
-    query_result: Option<QueryResponse>,
+    pub(crate) query_result: Option<SelectResponse>,
+    pub(crate) modified: u32,
 }
-
-impl DBResponse {}
 
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -24,13 +23,49 @@ impl fmt::Display for DBResponse {
     }
 }
 
+impl From<SelectResponse> for DBResponse {
+    fn from(value: SelectResponse) -> Self {
+        Self {
+            query_result: Some(value),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Default)]
-struct QueryResponse {
+pub struct SelectResponse {
     columns: Vec<String>,
     rows: Vec<Vec<String>>,
 }
 
-impl fmt::Display for QueryResponse {
+impl SelectResponse {
+    pub fn get_rows(&self) -> &[Vec<String>] {
+        self.rows.as_slice()
+    }
+
+    pub fn from_records(
+        records: &[FilteredRecord],
+        columns: &StatementColumns,
+        table: &Table,
+    ) -> Self {
+        let columns = match columns {
+            StatementColumns::Wildcard => table.cols.iter().map(|col| col.title.clone()).collect(),
+            StatementColumns::Cols(cols) => cols.iter().map(|col| col.clone()).collect(),
+        };
+        let rows = records
+            .iter()
+            .map(|rec| rec.iter().map(|cell| cell.to_string()).collect())
+            .collect();
+
+        SelectResponse { columns, rows }
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+}
+
+impl fmt::Display for SelectResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.columns.is_empty() {
             return writeln!(f, "(no columns)");
@@ -90,40 +125,7 @@ impl fmt::Display for QueryResponse {
     }
 }
 
-impl DBResponse {
-    pub fn get_rows(&self) -> Option<&[Vec<String>]> {
-        if let Some(q) = &self.query_result {
-            Some(q.rows.as_slice())
-        } else {
-            None
-        }
-    }
-
-    pub fn from_records(
-        records: &[FilteredRecord],
-        columns: &StatementColumns,
-        table: &Table,
-    ) -> Self {
-        let columns = match columns {
-            StatementColumns::Wildcard => table.cols.iter().map(|col| col.title.clone()).collect(),
-            StatementColumns::Cols(cols) => cols.iter().map(|col| col.clone()).collect(),
-        };
-        let rows = records
-            .iter()
-            .map(|rec| rec.iter().map(|cell| cell.to_string()).collect())
-            .collect();
-
-        let query_result = Some(QueryResponse { columns, rows });
-        DBResponse { query_result }
-    }
-
-    pub fn len(&self) -> usize {
-        match &self.query_result {
-            Some(q) => q.rows.len(),
-            None => 0,
-        }
-    }
-}
+impl DBResponse {}
 
 #[derive(Debug)]
 pub struct FilteredRecord(Vec<DataCell>);

@@ -113,8 +113,8 @@ impl TX {
                         .unwrap();
 
                     self.tree_set(k, v, SetFlag::UPDATE).map_err(|e| {
-                        error!(%e);
-                        TableError::TableIdError("error when retrieving id".to_string())
+                        error!("error when retrieving id {e}");
+                        TableError::TableIdError(format!("error when retrieving id {e}"))
                     })?;
 
                     self.key_range.capture_and_stop();
@@ -140,8 +140,8 @@ impl TX {
                     .unwrap();
 
                 self.tree_set(k, v, SetFlag::INSERT).map_err(|e| {
-                    error!(%e);
-                    TableError::TableIdError("error when retrieving id".to_string())
+                    error!("error when retrieving id {e}");
+                    TableError::TableIdError(format!("error when retrieving id {e}"))
                 })?;
 
                 self.key_range.capture_and_stop();
@@ -176,8 +176,8 @@ impl TX {
             .ok_or_else(|| TableError::InsertTableError("record iterator failure".to_string()))?;
 
         self.tree_set(k, v, SetFlag::UPSERT).map_err(|e| {
-            error!(%e, "error when inserting");
-            TableError::InsertTableError("error when inserting table".to_string())
+            error!("error when inserting table {e}");
+            TableError::InsertTableError(format!("error when inserting table {e}"))
         })?;
 
         self.key_range.capture_and_stop();
@@ -203,8 +203,8 @@ impl TX {
             .ok_or_else(|| TableError::InsertTableError("record iterator failure".to_string()))?;
 
         self.tree_set(k, v, SetFlag::UPDATE).map_err(|e| {
-            error!(%e, "error when inserting");
-            TableError::InsertTableError("error when inserting table".to_string())
+            error!("error when inserting table {e}");
+            TableError::InsertTableError(format!("error when inserting table {e}"))
         })?;
 
         self.key_range.capture_and_stop();
@@ -243,8 +243,8 @@ impl TX {
             .encode()?;
 
         self.tree_delete(qu).map_err(|e| {
-            error!(%e, "error when dropping table");
-            TableError::DeleteTableError("dropping table error when deleting".to_string())
+            error!("error when dropping table {e}");
+            TableError::DeleteTableError(format!("error when dropping table {e}"))
         })?;
 
         self.key_range.capture_and_stop();
@@ -304,8 +304,8 @@ impl TX {
         let mut iter = rec
             .encode(schema)
             .map_err(|e| {
-                error!(?e, "record failed to encode");
-                Error::InsertError("record failed to encode".to_string())
+                error!("record failed to encode {e}");
+                Error::InsertError(format!("record failed to encode {e}"))
             })?
             .peekable();
 
