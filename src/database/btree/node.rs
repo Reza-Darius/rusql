@@ -247,25 +247,6 @@ impl TreeNode {
         Ok(Key::from_encoded_slice(slice))
     }
 
-    pub fn get_key_ref(&self, idx: u16) -> Result<KeyRef<'_>, Error> {
-        if idx >= self.get_nkeys() {
-            error!(
-                "get_key: index {} out of key range {}",
-                idx,
-                self.get_nkeys()
-            );
-            return Err(Error::IndexError);
-        };
-        let kvpos = self.kv_pos(idx)?;
-        let key_len = self.as_offset_slice(kvpos).read_u16() as usize;
-
-        let offset = kvpos + KEY_LEN_OFFSET + VAL_LEN_OFFSET;
-        let slice = &self.0[offset..offset + key_len];
-        let key_ref = KeyRef::from_slice(slice);
-        debug!("returning {key_ref}");
-        Ok(key_ref)
-    }
-
     pub fn get_val(&self, idx: u16) -> Result<Value, Error> {
         if let NodeType::Node = self.get_type() {
             return Ok(Value::from_unencoded_str(" "));
