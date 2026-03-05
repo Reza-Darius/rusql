@@ -98,8 +98,8 @@ impl<P: Pager> Tree for BTree<P> {
                 let mut new_root = TreeNode::new();
 
                 new_root.set_header(NodeType::Leaf, 2);
-                new_root.kvptr_append(0, Pointer::from(0), Key::new_empty(), "".into())?; // empty key to remove edge case
-                new_root.kvptr_append(1, Pointer::from(0), key, val)?;
+                new_root.kvptr_append(0, Pointer::from(0), Key::new_empty().as_ref(), "".into())?; // empty key to remove edge case
+                new_root.kvptr_append(1, Pointer::from(0), key.as_ref(), val)?;
                 self.root_ptr = Some(self.encode(new_root));
 
                 res.added = true;
@@ -137,8 +137,8 @@ impl<P: Pager> Tree for BTree<P> {
 
         // iterate through node array from split to create new root node
         for (i, node) in split.1.into_iter().enumerate() {
-            let key = node.get_key(0)?;
-            new_root.kvptr_append(i as u16, self.encode(node), key, "".into())?;
+            let key = node.get_key(0)?.to_owned();
+            new_root.kvptr_append(i as u16, self.encode(node), key.as_ref(), "".into())?;
         }
 
         // encoding new root and updating tree ptr
@@ -217,7 +217,6 @@ impl<P: Pager> Tree for BTree<P> {
     fn set_root(&mut self, ptr: Option<Pointer>) {
         self.root_ptr = ptr
     }
-
 }
 
 impl<P: Pager> BTree<P> {
@@ -316,11 +315,11 @@ impl<P: Pager> BTree<P> {
             NodeType::Leaf => {
                 debug_print_tree(&node, idx);
                 let k = node.get_key(idx).unwrap();
-                if k == *key {
+                if k == key.as_ref() {
                     debug!("deleting key {} at idx {idx}", key.to_string());
 
                     res.deleted = true;
-                    res.old = Some((k, node.get_val(idx).unwrap()));
+                    res.old = Some((k.to_owned(), node.get_val(idx).unwrap()));
 
                     let mut new = TreeNode::new();
                     new.leaf_kvdelete(&node, idx).unwrap();
@@ -414,7 +413,7 @@ impl<P: Pager> BTree<P> {
                                 // no merge, update new child
                                 //
                                 // updating key of node in case the 0th key in child got deleted
-                                if *key != updated_child.get_key(0).unwrap() {
+                                if key.as_ref() != updated_child.get_key(0).unwrap() {
                                     let cur_type = node.get_type();
                                     new.leaf_kvupdate(
                                         node,
@@ -449,7 +448,7 @@ impl<P: Pager> BTree<P> {
             NodeType::Leaf => {
                 debug_print_tree(&node, idx);
 
-                if node.get_key(idx).unwrap() == key {
+                if node.get_key(idx).unwrap() == key.as_ref() {
                     debug!("key {key_s:?} found!");
                     return Some(node.get_val(idx).unwrap());
                 } else {
@@ -770,9 +769,11 @@ mod test {
         let tree = mempage_tree();
         let t_ref = tree.pager.tree.borrow();
 
+        let k: Key = "round".into();
+
         let mut node = TreeNode::new();
         node.set_header(NodeType::Leaf, 1);
-        node.kvptr_append(0, Pointer::from(0), "round".into(), "trip".into())
+        node.kvptr_append(0, Pointer::from(0), k.as_ref(), "trip".into())
             .unwrap();
 
         let ptr = t_ref.encode(node);
@@ -780,7 +781,7 @@ mod test {
 
         assert_eq!(decoded.unwrap_tn().get_type(), NodeType::Leaf);
         assert_eq!(decoded.unwrap_tn().get_nkeys(), 1);
-        assert_eq!(decoded.unwrap_tn().get_key(0).unwrap(), "round".into());
+        assert_eq!(decoded.unwrap_tn().get_key(0).unwrap(), k.as_ref());
         assert_eq!(decoded.unwrap_tn().get_val(0).unwrap(), "trip".into());
 
         // cleanup

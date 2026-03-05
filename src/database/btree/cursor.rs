@@ -228,7 +228,7 @@ impl<'a, P: Pager> Cursor<'a, P> {
 
         let key = node.unwrap_tn().get_key(idx).unwrap();
         let val = node.unwrap_tn().get_val(idx).unwrap();
-        (key, val)
+        (key.to_owned(), val)
     }
 
     // moves the path one idx forward

@@ -4,6 +4,7 @@ use tracing::debug;
 
 pub fn lookup_lt(node: &TreeNode, key: &Key) -> Option<u16> {
     let nkeys = node.get_nkeys();
+    let key = key.as_ref();
     let mut lo: u16 = 0;
     let mut hi: u16 = nkeys;
 
@@ -19,10 +20,10 @@ pub fn lookup_lt(node: &TreeNode, key: &Key) -> Option<u16> {
     while hi > lo {
         let m = (hi + lo) / 2;
         let v = node.get_key(m).ok()?;
-        // if v == *key {
+        // if v == key {
         //     return None; // key already exists
         // };
-        if v >= *key {
+        if v >= key {
             // changed to larger equal
             hi = m;
         } else {
@@ -34,6 +35,7 @@ pub fn lookup_lt(node: &TreeNode, key: &Key) -> Option<u16> {
 
 pub fn lookup_le(node: &TreeNode, key: &Key) -> Option<u16> {
     let nkeys = node.get_nkeys();
+    let key = key.as_ref();
     let mut lo: u16 = 0;
     let mut hi: u16 = nkeys;
 
@@ -50,10 +52,10 @@ pub fn lookup_le(node: &TreeNode, key: &Key) -> Option<u16> {
         let m = (hi + lo) / 2; // mid point
         let v = node.get_key(m).ok()?; // key at m
 
-        if v == *key {
+        if v == key {
             return Some(m as u16);
         };
-        if v > *key {
+        if v > key {
             hi = m;
         } else {
             lo = m + 1;
@@ -64,6 +66,7 @@ pub fn lookup_le(node: &TreeNode, key: &Key) -> Option<u16> {
 
 pub fn lookup_gt(node: &TreeNode, key: &Key) -> Option<u16> {
     let nkeys = node.get_nkeys();
+    let key = key.as_ref();
     let mut lo: u16 = 0;
     let mut hi: u16 = nkeys;
 
@@ -80,7 +83,7 @@ pub fn lookup_gt(node: &TreeNode, key: &Key) -> Option<u16> {
         let m = (hi + lo) / 2; // mid point
         let v = node.get_key(m).ok()?; // key at m
 
-        if v > *key {
+        if v > key {
             hi = m;
         } else {
             lo = m + 1;
@@ -91,6 +94,7 @@ pub fn lookup_gt(node: &TreeNode, key: &Key) -> Option<u16> {
 
 pub fn lookup_ge(node: &TreeNode, key: &Key) -> Option<u16> {
     let nkeys = node.get_nkeys();
+    let key = key.as_ref();
     let mut lo: u16 = 0;
     let mut hi: u16 = nkeys;
 
@@ -106,10 +110,10 @@ pub fn lookup_ge(node: &TreeNode, key: &Key) -> Option<u16> {
     while hi > lo {
         let m = (hi + lo) / 2; // mid point
         let v = node.get_key(m).ok()?; // key at m
-        if v == *key {
+        if v == key {
             return Some(m as u16);
         };
-        if v > *key {
+        if v > key {
             hi = m;
         } else {
             lo = m + 1;
@@ -120,6 +124,7 @@ pub fn lookup_ge(node: &TreeNode, key: &Key) -> Option<u16> {
 
 pub fn lookup_eq(node: &TreeNode, key: &Key) -> Option<u16> {
     let nkeys = node.get_nkeys();
+    let key = key.as_ref();
     let mut lo: u16 = 0;
     let mut hi: u16 = nkeys;
 
@@ -136,10 +141,10 @@ pub fn lookup_eq(node: &TreeNode, key: &Key) -> Option<u16> {
         let m = (hi + lo) / 2; // mid point
         let v = node.get_key(m).ok()?; // key at m
 
-        if v == *key {
+        if v == key {
             return Some(m as u16);
         };
-        if v > *key {
+        if v > key {
             hi = m;
         } else {
             lo = m + 1;

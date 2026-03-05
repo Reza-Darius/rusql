@@ -148,18 +148,23 @@ impl TreeNode {
 
         // insert new ptr at idx, consuming the split array
         for (i, node) in new_kids.1.into_iter().enumerate() {
-            let key = node.get_key(0)?;
+            let key = node.get_key(0)?.to_owned();
             let ptr = tree.encode(node);
             debug!(
                 "appending new ptr: {ptr} with {} at idx {}",
                 idx + i as u16,
                 key
             );
-            self.kvptr_append(idx + (i as u16), ptr, key, Value::from_unencoded_str(""))
-                .map_err(|e| {
-                    error!("error when appending split array");
-                    e
-                })?;
+            self.kvptr_append(
+                idx + (i as u16),
+                ptr,
+                key.as_ref(),
+                Value::from_unencoded_str(""),
+            )
+            .map_err(|e| {
+                error!("error when appending split array");
+                e
+            })?;
         }
 
         // copy from range after idx
@@ -229,7 +234,7 @@ impl TreeNode {
             + self.get_offset(idx)?) as usize)
     }
 
-    pub fn get_key(&self, idx: u16) -> Result<Key, Error> {
+    pub fn get_key(&self, idx: u16) -> Result<KeyRef<'_>, Error> {
         if idx >= self.get_nkeys() {
             error!(
                 "get_key: index {} out of key range {}",
@@ -244,7 +249,7 @@ impl TreeNode {
         let offset = kvpos + KEY_LEN_OFFSET + VAL_LEN_OFFSET;
         let slice = &self.0[offset..offset + key_len];
 
-        Ok(Key::from_encoded_slice(slice))
+        Ok(KeyRef::from_slice(slice))
     }
 
     pub fn get_val(&self, idx: u16) -> Result<Value, Error> {
@@ -270,14 +275,15 @@ impl TreeNode {
     /// appends key value and pointer at index
     ///
     /// does not update nkeys!
-    pub fn kvptr_append(
+    pub fn kvptr_append<'a, K: Into<KeyRef<'a>>>(
         &mut self,
         idx: u16,
         ptr: Pointer,
-        key: Key,
+        key: K,
         val: Value,
     ) -> Result<(), Error> {
         self.set_ptr(idx, ptr);
+        let key = key.into();
         let kvpos = self.kv_pos(idx)?;
         let klen = key.len() as u16;
         let vlen = val.len() as u16;
@@ -319,7 +325,7 @@ impl TreeNode {
             self.kvptr_append(
                 dst_idx + i,
                 src.get_ptr(src_idx + i),
-                src.get_key(src_idx + i)?.to_owned(),
+                src.get_key(src_idx + i)?,
                 src.get_val(src_idx + i)?,
             )?;
         }
@@ -353,7 +359,7 @@ impl TreeNode {
     ) -> Option<()> {
         let old_k = node.get_key(idx).ok()?;
         let old_v = node.get_val(idx).ok()?;
-        let key_exists: bool = old_k == key;
+        let key_exists: bool = old_k == key.as_ref();
 
         match flag {
             // only add if missing
@@ -371,9 +377,9 @@ impl TreeNode {
             SetFlag::UPDATE => {
                 if key_exists {
                     // debug!("updating {} {} with {} {}", old_k, old_v, key, val);
-                    self.leaf_kvupdate(node, idx, key, val).unwrap();
+                    self.leaf_kvupdate(node, idx, key.as_ref(), val).unwrap();
                     res.updated = true;
-                    res.old = Some((old_k, old_v));
+                    res.old = Some((old_k.to_owned(), old_v));
                     Some(())
                 } else {
                     None
@@ -382,9 +388,9 @@ impl TreeNode {
             // update or insert
             SetFlag::UPSERT => {
                 if key_exists {
-                    self.leaf_kvupdate(node, idx, key, val).unwrap();
+                    self.leaf_kvupdate(node, idx, key.as_ref(), val).unwrap();
                     res.updated = true;
-                    res.old = Some((old_k, old_v));
+                    res.old = Some((old_k.to_owned(), old_v));
 
                     Some(())
                 } else {
@@ -418,7 +424,7 @@ impl TreeNode {
         })?;
 
         // insert new kv
-        self.kvptr_append(idx, Pointer::from(0u64), key, val)?;
+        self.kvptr_append(idx, Pointer::from(0u64), key.as_ref(), val)?;
 
         // appending after idx
         if src_nkeys > idx {
@@ -438,7 +444,7 @@ impl TreeNode {
         &mut self,
         src: &TreeNode,
         idx: u16,
-        key: Key,
+        key: KeyRef<'_>,
         val: Value,
     ) -> Result<(), Error> {
         let src_nkeys = src.get_nkeys();
@@ -685,7 +691,7 @@ impl TreeNode {
         let src_nkeys = src.get_nkeys();
         self.set_header(NodeType::Node, src_nkeys - 1);
 
-        let merge_ptr_key = merged_node.get_key(0).unwrap();
+        let merge_ptr_key = merged_node.get_key(0).unwrap().to_owned();
         let merge_node_ptr = tree.encode(merged_node);
 
         self.append_from_range(&src, 0, 0, idx).map_err(|err| {
@@ -695,7 +701,7 @@ impl TreeNode {
         self.kvptr_append(
             idx,
             merge_node_ptr,
-            merge_ptr_key,
+            merge_ptr_key.as_ref(),
             Value::from_unencoded_str(""),
         )?;
         if src_nkeys > (idx + 2) {
@@ -769,13 +775,17 @@ mod test {
     #[test]
     fn kv_append() -> Result<(), Error> {
         let mut node = TreeNode::new();
-        node.set_header(NodeType::Leaf, 2);
-        node.kvptr_append(0, Pointer::from(0), "k1".into(), "hi".into())?;
-        node.kvptr_append(1, Pointer::from(0), "k3".into(), "hello".into())?;
 
-        assert_eq!(node.get_key(0).unwrap(), "k1".into());
+        let k1: Key = "k1".into();
+        let k3: Key = "k3".into();
+
+        node.set_header(NodeType::Leaf, 2);
+        node.kvptr_append(0, Pointer::from(0), k1.as_ref(), "hi".into())?;
+        node.kvptr_append(1, Pointer::from(0), k3.as_ref(), "hello".into())?;
+
+        assert_eq!(node.get_key(0).unwrap(), k1.as_ref());
         assert_eq!(node.get_val(0).unwrap(), "hi".into());
-        assert_eq!(node.get_key(1).unwrap(), "k3".into());
+        assert_eq!(node.get_key(1).unwrap(), k3.as_ref());
         assert_eq!(node.get_val(1).unwrap(), "hello".into());
         Ok(())
     }
@@ -785,15 +795,18 @@ mod test {
         let mut n1 = TreeNode::new();
         let mut n2 = TreeNode::new();
 
+        let k1: Key = "k1".into();
+        let k3: Key = "k3".into();
+
         n2.set_header(NodeType::Leaf, 2);
         n1.set_header(NodeType::Leaf, 2);
-        n1.kvptr_append(0, Pointer::from(0), "k1".into(), "hi".into())?;
-        n1.kvptr_append(1, Pointer::from(0), "k3".into(), "hello".into())?;
+        n1.kvptr_append(0, Pointer::from(0), k1.as_ref(), "hi".into())?;
+        n1.kvptr_append(1, Pointer::from(0), k3.as_ref(), "hello".into())?;
         n2.append_from_range(&n1, 0, 0, n1.get_nkeys())?;
 
-        assert_eq!(n2.get_key(0).unwrap(), "k1".into());
+        assert_eq!(n2.get_key(0).unwrap(), k1.as_ref());
         assert_eq!(n2.get_val(0).unwrap(), "hi".into());
-        assert_eq!(n2.get_key(1).unwrap(), "k3".into());
+        assert_eq!(n2.get_key(1).unwrap(), k3.as_ref());
         assert_eq!(n2.get_val(1).unwrap(), "hello".into());
         Ok(())
     }
@@ -803,16 +816,20 @@ mod test {
         let mut n1 = TreeNode::new();
         let mut n2 = TreeNode::new();
 
+        let k1: Key = "k1".into();
+        let k2: Key = "k2".into();
+        let k3: Key = "k3".into();
+
         n1.set_header(NodeType::Leaf, 3);
-        n1.kvptr_append(0, Pointer::from(0), "k1".into(), "hi".into())?;
-        n1.kvptr_append(1, Pointer::from(0), "k2".into(), "bonjour".into())?;
-        n1.kvptr_append(2, Pointer::from(0), "k3".into(), "hello".into())?;
+        n1.kvptr_append(0, Pointer::from(0), k1.as_ref(), "hi".into())?;
+        n1.kvptr_append(1, Pointer::from(0), k2.as_ref(), "bonjour".into())?;
+        n1.kvptr_append(2, Pointer::from(0), k3.as_ref(), "hello".into())?;
 
         n2.leaf_kvdelete(&n1, 1)?;
 
-        assert_eq!(n2.get_key(0).unwrap(), "k1".into());
+        assert_eq!(n2.get_key(0).unwrap(), k1.as_ref());
         assert_eq!(n2.get_val(0).unwrap(), "hi".into());
-        assert_eq!(n2.get_key(1).unwrap(), "k3".into());
+        assert_eq!(n2.get_key(1).unwrap(), k3.as_ref());
         assert_eq!(n2.get_val(1).unwrap(), "hello".into());
         Ok(())
     }
@@ -821,14 +838,19 @@ mod test {
     #[should_panic]
     fn kv_delete_panic() -> () {
         let mut n1 = TreeNode::new();
+
+        let k1: Key = "k1".into();
+        let k2: Key = "k2".into();
+        let k3: Key = "k3".into();
+
         n1.set_header(NodeType::Leaf, 3);
-        n1.kvptr_append(0, Pointer::from(0), "k1".into(), "hi".into())
+        n1.kvptr_append(0, Pointer::from(0), k1.as_ref(), "hi".into())
             .map_err(|_| ())
             .expect("unexpected panic");
-        n1.kvptr_append(1, Pointer::from(0), "k2".into(), "bonjour".into())
+        n1.kvptr_append(1, Pointer::from(0), k2.as_ref(), "bonjour".into())
             .map_err(|_| ())
             .expect("unexpected panic");
-        n1.kvptr_append(2, Pointer::from(0), "k3".into(), "hello".into())
+        n1.kvptr_append(2, Pointer::from(0), k3.as_ref(), "hello".into())
             .map_err(|_| ())
             .expect("unexpected panic");
 

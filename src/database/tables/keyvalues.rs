@@ -40,6 +40,10 @@ impl Key {
         }
     }
 
+    pub fn as_ref(&self) -> KeyRef<'_> {
+        KeyRef::from_slice(self.as_slice())
+    }
+
     // reads the first 8 bytes
     pub fn get_tid(&self) -> u32 {
         u32::from_le_bytes(self.0[..TID_LEN].try_into().expect("this cant fail"))
