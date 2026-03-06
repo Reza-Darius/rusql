@@ -417,11 +417,10 @@ mod test {
 
     use crate::database::{
         btree::{
-            SetFlag, Tree,
+            SetFlag,
             cursor::{Compare, Scanner},
         },
         pager::{KVEngine, mempage_tree},
-        tables::Record,
     };
 
     #[test]

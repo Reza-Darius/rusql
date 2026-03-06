@@ -6,10 +6,8 @@ use tracing::debug;
 use tracing::info;
 use tracing::instrument;
 
-use crate::database::btree::cursor::ScanIter;
-use crate::database::errors::ScanError;
 use crate::database::{
-    btree::{cursor::Scanner, node::*},
+    btree::node::*,
     errors::{Error, Result},
     helper::debug_print_tree,
     pager::{NodeFlag, Pager},

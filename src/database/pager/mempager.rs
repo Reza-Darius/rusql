@@ -6,10 +6,10 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use tracing::{debug, error};
 
 use crate::database::{
-    btree::{BTree, DeleteResponse, Scanner, SetFlag, SetResponse, Tree},
+    btree::{BTree, DeleteResponse, SetFlag, SetResponse, Tree},
     errors::{Error, Result},
     pager::Pager,
-    tables::{Key, Record, Value},
+    tables::{Key, Value},
     types::{Node, Pointer},
 };
 

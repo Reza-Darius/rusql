@@ -63,6 +63,36 @@ impl SelectResponse {
     pub fn len(&self) -> usize {
         self.rows.len()
     }
+
+    pub fn order_by(&mut self, col_idx: usize) {
+        if col_idx > self.columns.len() {
+            return;
+        }
+        let len = self.rows.len();
+        qs(self.rows.as_mut_slice(), col_idx, 0, len - 1);
+        todo!()
+    }
+}
+
+fn qs(arr: &mut [Vec<String>], col_idx: usize, lo: usize, hi: usize) {
+    if lo < hi {
+        let pivot_idx = partition(arr, col_idx, lo, hi);
+        qs(arr, col_idx, lo, pivot_idx - 1);
+        qs(arr, col_idx, pivot_idx + 1, hi);
+    }
+}
+
+fn partition(arr: &mut [Vec<String>], col_idx: usize, lo: usize, hi: usize) -> usize {
+    let mut idx: i32 = lo as i32 - 1;
+    for i in lo..hi - 1 {
+        if arr[i][col_idx] < arr[hi][col_idx] {
+            idx += 1;
+            arr.swap(idx as usize, i);
+        }
+    }
+    let idx = idx as usize + 1;
+    arr.swap(idx, hi);
+    idx
 }
 
 impl fmt::Display for SelectResponse {

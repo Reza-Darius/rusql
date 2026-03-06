@@ -1,4 +1,4 @@
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 use crate::database::errors::{ParseError, Result};
 use crate::interpreter::parser::parser::*;
@@ -24,6 +24,7 @@ pub struct SelectStatement {
     pub table_name: String,
     pub index: Option<Vec<StatementIndex>>,
     pub limit: Option<StatementLimit>,
+    pub order: Option<StatementOrder>,
 }
 
 impl SelectStatement {
@@ -40,6 +41,10 @@ impl SelectStatement {
         if let Some(limit) = &self.limit {
             limit.is_valid()?;
         }
+
+        if let Some(order) = &self.order {
+            order.is_valid()?;
+        }
         Ok(())
     }
 }
@@ -50,75 +55,76 @@ impl StatementInterface for SelectStatement {
     }
 }
 
+#[instrument(skip_all)]
 pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
     info!("parsing SELECT statement!");
 
+    parser.next();
+    let columns = parse_columns(parser)?;
+
+    parse_token(parser, Token::Keyword(Keyword::From))?;
+
+    let table_name = parse_identifier(parser)?;
+
     let mut statement = SelectStatement {
-        columns: StatementColumns::Wildcard,
-        table_name: String::new(),
+        columns,
+        table_name,
         index: None,
         limit: None,
+        order: None,
     };
-
-    parser.next();
-    statement.columns = parse_columns(parser)?;
-    parse_token(parser, Token::Keyword(Keyword::From))?;
-    statement.table_name = parse_identifier(parser)?;
-
-    if parser.lexer.current == Token::Seperator(Seperator::Semicolon) {
-        return Ok(Statement::Select(statement));
-    }
 
     // optional index or limit clause
-    match &parser.lexer.current {
-        Token::Keyword(Keyword::Where) => {
-            debug!("parsing WHERE clause");
-            statement.index = Some(parse_index(parser)?);
-        }
-        Token::Keyword(Keyword::Limit) => {
-            debug!("parsing LIMIT clause");
-            statement.limit = Some(parse_limit(parser)?);
-        }
-        t => {
-            return Err(ParseError::InvalidToken {
-                expected: "expected WHERE or LIMIT clause".to_string(),
-                got: t.to_string(),
-            }
-            .into());
-        }
-    };
-
-    // LIMIT plus WHERE
-    if statement.limit.is_none() {
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
         match &parser.lexer.current {
-            Token::Seperator(Seperator::Semicolon) => (),
+            Token::Seperator(Seperator::Semicolon) => {
+                statement.validate()?;
+                return Ok(Statement::Select(statement));
+            }
+            Token::Keyword(Keyword::Where) => {
+                debug!("parsing WHERE clause");
+
+                if statement.index.is_some() {
+                    error!("cant provide multiple WHERE clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple WHERE clauses").into(),
+                    );
+                }
+                statement.index = Some(parse_index(parser)?);
+            }
             Token::Keyword(Keyword::Limit) => {
                 debug!("parsing LIMIT clause");
+
+                if statement.limit.is_some() {
+                    error!("cant provide multiple LIMIT clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple LIMIT clauses").into(),
+                    );
+                }
                 statement.limit = Some(parse_limit(parser)?);
             }
-            t => {
-                return Err(ParseError::InvalidToken {
-                    expected: "expected LIMIT clause".to_string(),
-                    got: t.to_string(),
+            Token::Keyword(Keyword::Order) => {
+                debug!("parsing ORDER clause");
+
+                if statement.order.is_some() {
+                    error!("cant provide multiple ORDER clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple ORDER clauses").into(),
+                    );
                 }
-                .into());
+                statement.order = Some(parse_order(parser)?);
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected WHERE or LIMIT clause".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
             }
         };
     }
-
-    if let Some(t) = parser.next()
-        && (*t != Token::Seperator(Seperator::Semicolon))
-    {
-        return Err(ParseError::InvalidToken {
-            expected: "expected semicolon".to_string(),
-            got: t.to_string(),
-        }
-        .into());
-    }
-
-    statement.validate()?;
-
-    Ok(Statement::Select(statement))
 }
 
 #[derive(Debug)]
@@ -142,6 +148,11 @@ impl InsertStatement {
 
         self.columns.is_valid()?;
 
+        if self.values.is_empty() {
+            error!("no values provided");
+            return Err(ParseError::ParseError("no values provided").into());
+        }
+
         for value in self.values.iter() {
             value.is_valid()?;
         }
@@ -155,6 +166,7 @@ impl InsertStatement {
     }
 }
 
+#[instrument(skip_all)]
 pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
     info!("parsing insert statement");
 
@@ -164,20 +176,19 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
     let table_name = parse_identifier(parser)?;
     let columns = parse_columns(parser)?;
 
-    // parsing values
     parse_token(parser, Token::Keyword(Keyword::Values))?;
 
-    let mut values = vec![];
+    let mut statement = InsertStatement {
+        table_name,
+        columns,
+        values: vec![],
+    };
 
-    while let Some(t) = parser.current() {
-        debug!(?t, "parsing token");
-        match t {
-            Token::Seperator(Seperator::Comma) => {
-                parser.next();
-                let expr = parse_expression_statement(parser)
-                    .ok_or_else(|| ParseError::ParseError("expected expression"))?;
-
-                values.push(expr.evaluate()?);
+    // parsing VALUES
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Comma) | Token::Seperator(Seperator::RParen) => {
                 parser.next();
                 continue;
             }
@@ -188,17 +199,102 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
                 let expr = parse_expression_statement(parser)
                     .ok_or_else(|| ParseError::ParseError("expected expression"))?;
 
-                values.push(expr.evaluate()?);
+                statement.values.push(expr.evaluate()?);
                 parser.next();
                 continue;
             }
-            Token::Seperator(Seperator::RParen) => {
-                parser.next();
-                continue;
+            Token::Seperator(Seperator::Semicolon) => {
+                statement.validate()?;
+                return Ok(Statement::Insert(statement));
             }
-            Token::Seperator(Seperator::Semicolon) => break,
+            t => {
+                return Err(ParseError::InvalidToken {
+                    expected: "expected expression or comma".to_string(),
+                    got: t.to_string(),
+                }
+                .into());
+            }
+        }
+    }
+}
 
-            _ => {
+#[derive(Debug)]
+pub struct UpdateStatement {
+    table_name: String,
+    set: Vec<StatementSet>,
+    index: Option<Vec<StatementIndex>>,
+    order: Option<StatementOrder>,
+    limit: Option<StatementLimit>,
+}
+
+impl UpdateStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+
+        for set in self.set.iter() {
+            set.is_valid()?;
+        }
+
+        if let Some(indices) = &self.index {
+            for index in indices.iter() {
+                index.is_valid(None)?;
+            }
+        }
+
+        if let Some(limit) = &self.limit {
+            limit.is_valid()?;
+        }
+
+        if let Some(order) = &self.order {
+            order.is_valid()?;
+        }
+
+        Ok(())
+    }
+}
+
+// UPDATE table_name SET col1 = expr, col2 = expr WHERE col1 > expr LIMIT 5
+#[instrument(skip_all)]
+pub fn parse_update(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing update statement");
+
+    parser.next();
+
+    let table_name = parse_identifier(parser)?;
+    parse_token(parser, Token::Keyword(Keyword::Set))?;
+
+    let mut statement = UpdateStatement {
+        table_name,
+        set: vec![],
+        index: None,
+        order: None,
+        limit: None,
+    };
+
+    // parsing SET
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Comma) => {
+                parser.next();
+                continue;
+            }
+            Token::Ident(identifier) => {
+                let column = identifier.clone();
+                parser.next();
+
+                parse_token(parser, Token::Operator(Operator::Assign))?;
+
+                let expr = parse_expression_statement(parser)
+                    .ok_or_else(|| ParseError::ParseError("expected expression"))?
+                    .evaluate()?;
+
+                statement.set.push(StatementSet { column, expr });
+                parser.next();
+            }
+            Token::Seperator(Seperator::Semicolon) | Token::Keyword(_) => break,
+
+            t => {
                 return Err(ParseError::InvalidToken {
                     expected: "expected expression or comma".to_string(),
                     got: t.to_string(),
@@ -208,30 +304,160 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
         }
     }
 
-    if let Some(t) = parser.next()
-        && (*t != Token::Seperator(Seperator::Semicolon))
-    {
-        return Err(ParseError::InvalidToken {
-            expected: "expected semicolon".to_string(),
-            got: t.to_string(),
-        }
-        .into());
+    if statement.set.is_empty() {
+        error!("no statements provided");
+        return Err(ParseError::ParseError("no statements provided").into());
     }
 
-    let statement = InsertStatement {
-        table_name,
-        columns,
-        values,
-    };
-    statement.validate()?;
+    // optional index or limit clause
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Semicolon) => {
+                statement.validate()?;
+                return Ok(Statement::Update(statement));
+            }
+            Token::Keyword(Keyword::Where) => {
+                debug!("parsing WHERE clause");
 
-    Ok(Statement::Insert(statement))
+                if statement.index.is_some() {
+                    error!("cant provide multiple WHERE clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple WHERE clauses").into(),
+                    );
+                }
+                statement.index = Some(parse_index(parser)?);
+            }
+            Token::Keyword(Keyword::Limit) => {
+                debug!("parsing LIMIT clause");
+
+                if statement.limit.is_some() {
+                    error!("cant provide multiple LIMIT clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple LIMIT clauses").into(),
+                    );
+                }
+                statement.limit = Some(parse_limit(parser)?);
+            }
+            Token::Keyword(Keyword::Order) => {
+                debug!("parsing ORDER clause");
+
+                if statement.order.is_some() {
+                    error!("cant provide multiple ORDER clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple ORDER clauses").into(),
+                    );
+                }
+                statement.order = Some(parse_order(parser)?);
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected WHERE or LIMIT clause".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        };
+    }
 }
 
 #[derive(Debug)]
-pub struct UpdateStatement;
-#[derive(Debug)]
-pub struct DeleteStatement;
+pub struct DeleteStatement {
+    table_name: String,
+    index: Option<Vec<StatementIndex>>,
+    order: Option<StatementOrder>,
+    limit: Option<StatementLimit>,
+}
+
+impl DeleteStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+
+        if let Some(indices) = &self.index {
+            for index in indices.iter() {
+                index.is_valid(None)?;
+            }
+        }
+
+        if let Some(limit) = &self.limit {
+            limit.is_valid()?;
+        }
+
+        if let Some(order) = &self.order {
+            order.is_valid()?;
+        }
+        Ok(())
+    }
+}
+
+pub fn parse_delete(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing delete statement");
+
+    parser.next();
+    parse_token(parser, Token::Keyword(Keyword::From))?;
+    let table_name = parse_identifier(parser)?;
+
+    let mut statement = DeleteStatement {
+        table_name,
+        index: None,
+        order: None,
+        limit: None,
+    };
+
+    // optional index or limit clause
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Semicolon) => {
+                statement.validate()?;
+                return Ok(Statement::Delete(statement));
+            }
+            Token::Keyword(Keyword::Where) => {
+                debug!("parsing WHERE clause");
+
+                if statement.index.is_some() {
+                    error!("cant provide multiple WHERE clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple WHERE clauses").into(),
+                    );
+                }
+                statement.index = Some(parse_index(parser)?);
+            }
+            Token::Keyword(Keyword::Limit) => {
+                debug!("parsing LIMIT clause");
+
+                if statement.limit.is_some() {
+                    error!("cant provide multiple LIMIT clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple LIMIT clauses").into(),
+                    );
+                }
+                statement.limit = Some(parse_limit(parser)?);
+            }
+            Token::Keyword(Keyword::Order) => {
+                debug!("parsing ORDER clause");
+
+                if statement.order.is_some() {
+                    error!("cant provide multiple ORDER clauses");
+                    return Err(
+                        ParseError::ParseError("cant provide multiple ORDER clauses").into(),
+                    );
+                }
+                statement.order = Some(parse_order(parser)?);
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected WHERE or LIMIT clause".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        };
+    }
+}
+
 #[derive(Debug)]
 pub struct CreateStatement;
 
@@ -241,20 +467,19 @@ mod parser_test {
     use test_log::test;
 
     #[test]
-    fn select_statement1() {
-        let input = "SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = \"hello\" LIMIT -5 + 7;";
-        let res = Parser::parse(input);
-        println!("{:?}", res);
-        assert!(res.is_ok());
-
-        let input = "SELECT * FROM table;";
+    fn select_parse1() {
+        let input = r#"
+            SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+            SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7 ORDER col2;
+            SELECT * FROM table ORDER col1;
+        "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
     }
 
     #[test]
-    fn insert_statement() {
+    fn insert_parse1() {
         let input = "INSERT INTO table (col1, col2) VALUES (2*2), \"Hello\";";
         let res = Parser::parse(input);
         println!("{:?}", res);
@@ -262,13 +487,27 @@ mod parser_test {
     }
 
     #[test]
-    fn multiple_statements() {
+    fn update_parse1() {
         let input = r#"
-           SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+            UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5 ORDER col1;
+            UPDATE table SET col = "hello" WHERE col <= "hi" ORDER col LIMIT 2;
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn composite_parse1() {
+        let input = r#"
            INSERT INTO table (col1, col2) VALUES (2*2), "Hello";
+           UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
+           SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
            "#;
         let res = Parser::parse(input);
-        assert_eq!(res.as_ref().unwrap().len(), 2);
-        println!("{:?}", res.as_ref().unwrap()[0]);
+        assert_eq!(res.as_ref().unwrap().len(), 3);
+        for stmt in res.unwrap() {
+            println!("{stmt:?}");
+        }
     }
 }

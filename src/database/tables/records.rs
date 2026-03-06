@@ -3,9 +3,7 @@ use std::fmt::Write;
 use std::ops::Index;
 
 use tracing::{debug, error};
-use tracing_subscriber::registry::Data;
 
-use crate::database::btree::Compare;
 use crate::database::codec::*;
 use crate::database::tables::tables::{IdxKind, TableIndex};
 use crate::database::tables::{Key, Value};

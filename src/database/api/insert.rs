@@ -5,7 +5,7 @@ use crate::{
     interpreter::{InsertStatement, StatementColumns},
 };
 
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info, instrument};
 
 // INSERT INTO table (col1, col2) VALUES (2*2), "Hello"
 #[instrument(skip_all)]
@@ -28,19 +28,6 @@ pub fn exec_insert(tx: &mut TX, stmt: InsertStatement) -> Result<DBResponse> {
             error!("not enough values provided");
             return Err(ExecError::ExecutionError("not enough values or columns provided").into());
         }
-
-        // // do the columns exist, and do the data types match?
-        // if !columns
-        //     .iter()
-        //     .enumerate()
-        //     .all(|(idx, col)| table.validate_col_data(col, &stmt.values[idx]))
-        // {
-        //     error!("invalid column name or data provided for insert statement");
-        //     return Err(ExecError::ExecutionError(
-        //         "invalid column name or data provided for insert statement",
-        //     )
-        //     .into());
-        // }
     }
 
     let mut rec = Record::new();
@@ -72,7 +59,7 @@ mod execute_insert {
     use super::*;
     use test_log::test;
 
-    fn test_db(path: &'static str) -> Result<Database> {
+    fn test_db_single_index(path: &'static str) -> Result<Database> {
         cleanup_file(path);
         let db = Database::open(path);
         let mut tx = db.db.begin(&db.db, TXKind::Write);
@@ -91,10 +78,32 @@ mod execute_insert {
         db.db.commit(tx)?;
         Ok(db)
     }
+
+    fn test_db_multi_index(path: &'static str) -> Result<Database> {
+        cleanup_file(path);
+        let db = Database::open(path);
+        let mut tx = db.db.begin(&db.db, TXKind::Write);
+
+        let mut table = TableBuilder::new()
+            .id(3)
+            .name("mytable")
+            .add_col("name", TypeCol::Bytes)
+            .add_col("age", TypeCol::Integer)
+            .add_col("id", TypeCol::Integer)
+            .pkey(1)
+            .build(&mut tx)?;
+
+        tx.insert_table(&table)?;
+        tx.create_index("age", "age", &mut table)?;
+
+        db.db.commit(tx)?;
+        Ok(db)
+    }
+
     #[test]
     fn insert_exec_positive1() -> Result<()> {
         let path = "test-files/insert_exec_positive1.rdb";
-        let db = test_db(path)?;
+        let db = test_db_single_index(path)?;
 
         let query = r#"INSERT INTO mytable (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
         let mut stmt = Parser::parse(query)?;
@@ -120,6 +129,7 @@ mod execute_insert {
         assert_eq!(res.len(), 3);
 
         let rows = res.get_rows();
+
         assert_eq!(&rows[0][0], "Alice");
         assert_eq!(&rows[0][1], "20");
         assert_eq!(&rows[0][2], "1");
@@ -134,13 +144,14 @@ mod execute_insert {
 
         println!("{query}\n{res}");
 
+        cleanup_file(path);
         Ok(())
     }
 
     #[test]
     fn insert_exec_negative1() -> Result<()> {
         let path = "test-files/insert_exec_negative1.rdb";
-        let db = test_db(path)?;
+        let db = test_db_single_index(path)?;
 
         // invalid table
         let query = r#"INSERT INTO table_doesnt_exist (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
@@ -169,6 +180,44 @@ mod execute_insert {
         let stmt = Parser::parse(query);
         assert!(stmt.is_err());
 
+        cleanup_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn insert_exec_positive2() -> Result<()> {
+        let path = "test-files/insert_exec_positive2.rdb";
+        let db = test_db_multi_index(path)?;
+
+        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0))?;
+        assert_eq!(res.modified, 2);
+
+        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Bob", 15, 2;"#;
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0))?;
+        assert_eq!(res.modified, 2);
+
+        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Char" + "lie", 25, 7 - 4;"#;
+        let mut stmt = Parser::parse(query)?;
+
+        let res = db.execute(stmt.remove(0))?;
+        assert_eq!(res.modified, 2);
+
+        let query = r#"SELECT * FROM mytable;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0))?.query_result.unwrap();
+        assert_eq!(res.len(), 3);
+
+        let query = r#"SELECT age FROM mytable;"#;
+        let mut stmt = Parser::parse(query)?;
+        let res = db.execute(stmt.remove(0))?.query_result.unwrap();
+        assert_eq!(res.len(), 3);
+
+        cleanup_file(path);
         Ok(())
     }
 }

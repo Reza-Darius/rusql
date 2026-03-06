@@ -462,28 +462,33 @@ impl TX {
         // get all primary rows
         let recs = self.full_table_scan(table)?.collect_records();
         let nrecs = recs.len();
-        assert!(nrecs > 0);
 
-        // insert new keys
-        self.key_range.listen();
-        let mut modified = 0;
+        let modified = if nrecs > 0 {
+            // insert new keys
+            self.key_range.listen();
+            let mut modified = 0;
 
-        for rec in recs {
-            debug!(%rec, "trying to encode");
-            let mut iter = rec.encode(&table)?;
+            for rec in recs {
+                debug!(%rec, "trying to encode");
+                let mut iter = rec.encode(&table)?;
 
-            for c in 0..idx {
-                iter.next(); // skipping keys
+                for c in 0..idx {
+                    iter.next(); // skipping keys
+                }
+
+                for (k, v) in iter {
+                    debug!(%k, "inserting...");
+                    let r = self.tree_set(k, v, SetFlag::INSERT)?;
+                    assert!(r.added, "key doesnt exist therefore this shouldnt fail");
+                    self.key_range.capture_and_listen();
+                    modified += 1;
+                }
             }
-
-            for (k, v) in iter {
-                debug!(%k, "inserting...");
-                let r = self.tree_set(k, v, SetFlag::INSERT)?;
-                assert!(r.added, "key doesnt exist therefore this shouldnt fail");
-                self.key_range.capture_and_listen();
-                modified += 1;
-            }
-        }
+            modified
+        // the table is empty
+        } else {
+            0
+        };
 
         // update or insert
         if let Some(_) = self.get_table(&table.name) {
@@ -812,7 +817,7 @@ mod tables {
         assert!(tx.drop_table("droppable").is_ok());
 
         db.commit(tx).unwrap();
-        let mut tx = db.begin(&db, TXKind::Read);
+        let tx = db.begin(&db, TXKind::Read);
 
         assert!(tx.get_table("droppable").is_none());
 
@@ -1321,7 +1326,7 @@ mod concurrent_tx_tests {
     use crate::database::{
         btree::SetFlag,
         helper::cleanup_file,
-        pager::transaction::{CommitStatus, Retry, Transaction},
+        pager::transaction::{Retry, Transaction},
         tables::{Query, Record, TypeCol, tables::TableBuilder},
         transactions::{
             kvdb::StorageEngine,
@@ -2839,7 +2844,7 @@ mod secondary_index_ops {
 
         // Verify it exists via secondary index
         let status_query = Query::by_col(&table).add("status", "active").encode()?;
-        let mut scan = Scanner::open(status_query.clone(), Compare::Ge, &tx.tree);
+        let scan = Scanner::open(status_query.clone(), Compare::Ge, &tx.tree);
 
         // Delete the record
         let q = Query::by_col(&table).add("id", 1i64);

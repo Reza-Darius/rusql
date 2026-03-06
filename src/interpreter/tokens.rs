@@ -36,6 +36,8 @@ pub enum Keyword {
     Delete,
     Create,
 
+    Order,
+    Set,
     Values,
     All,
     And,
@@ -54,6 +56,8 @@ pub const DELETE: &str = "delete";
 pub const CREATE: &str = "create";
 pub const VALUES: &str = "values";
 
+pub const ORDER: &str = "order";
+pub const SET: &str = "set";
 pub const ALL: &str = "all";
 pub const AND: &str = "and";
 pub const OR: &str = "or";
@@ -74,6 +78,8 @@ thread_local! {
         map.insert(CREATE, Keyword::Create);
         map.insert(VALUES, Keyword::Values);
 
+        map.insert(ORDER, Keyword::Order);
+        map.insert(SET, Keyword::Set);
         map.insert(ALL, Keyword::All);
         map.insert(AND, Keyword::And);
         map.insert(OR, Keyword::Or);

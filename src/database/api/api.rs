@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::database::api::insert::exec_insert;
 use crate::database::api::response::DBResponse;
 use crate::database::api::select::exec_select;
-use crate::database::errors::Result;
+use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::transactions::kvdb::*;
 use crate::database::transactions::tx::*;
@@ -27,6 +27,10 @@ impl Database {
     pub fn commit_tx(&self, tx: TX) -> Result<CommitStatus> {
         self.db.commit(tx)
     }
+
+    pub fn abort_tx(&self, tx: TX) -> Result<CommitStatus> {
+        self.db.abort(tx)
+    }
 }
 
 impl Database {
@@ -37,6 +41,7 @@ impl Database {
         } else {
             self.new_tx(TXKind::Write)
         };
+
         let res = match statement {
             Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
             Statement::Insert(insert_statement) => exec_insert(&mut tx, insert_statement),
@@ -44,6 +49,12 @@ impl Database {
             Statement::Delete(delete_statement) => todo!(),
             Statement::Create(create_statement) => todo!(),
         };
+
+        if res.is_err() {
+            self.abort_tx(tx)?;
+            return res;
+        }
+
         let com_res = self.commit_tx(tx)?;
         res
     }

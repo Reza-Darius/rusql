@@ -3,7 +3,6 @@ use super::types::*;
 use rustix::fs::{self, Mode, OFlags};
 use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
-use std::rc::Rc;
 use tracing::{debug, error};
 
 use crate::database::btree::TreeNode;

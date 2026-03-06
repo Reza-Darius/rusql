@@ -57,18 +57,9 @@ pub struct StatementIndex {
 impl StatementIndex {
     pub fn is_valid(&self, columns: Option<&StatementColumns>) -> Result<()> {
         is_valid_col(&self.column)?;
-
-        // // if the index column doesn't matches the provided columns from a SELECT statement for example
-        // if let Some(stmt) = columns
-        //     && let StatementColumns::Cols(cols) = stmt
-        // {
-        //     for col in cols.iter() {
-        //         is_valid_col(col)?;
-        //     }
-        // }
-
         self.expr.is_valid()?;
         self.operator.is_valid_cmp()?;
+
         Ok(())
     }
 }
@@ -89,6 +80,11 @@ impl StatementColumns {
 
     pub fn is_valid(&self) -> Result<()> {
         if let StatementColumns::Cols(cols) = self {
+            if cols.is_empty() {
+                error!("no columns provided");
+                return Err(ParseError::ValidationError("no columns provided").into());
+            }
+
             let mut set = HashSet::with_capacity(cols.len());
 
             for col in cols.iter() {
@@ -118,6 +114,31 @@ impl StatementLimit {
             error!(limit = self.0, "validation error: limit cant be negative");
             Err(ParseError::ValidationError("Limit clause cant be negative").into())
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct StatementSet {
+    pub column: String,
+    pub expr: ValueObject,
+}
+
+impl StatementSet {
+    pub fn is_valid(&self) -> Result<()> {
+        is_valid_col(&self.column)?;
+        self.expr.is_valid()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct StatementOrder {
+    pub column: String,
+}
+
+impl StatementOrder {
+    pub fn is_valid(&self) -> Result<()> {
+        is_valid_col(&self.column)
     }
 }
 

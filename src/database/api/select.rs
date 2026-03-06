@@ -6,11 +6,11 @@ use crate::database::btree::{BTree, Compare, ScanIter, Scanner};
 use crate::database::codec::Bound;
 use crate::database::errors::*;
 use crate::database::pager::Pager;
+use crate::database::tables::tables::Table;
 use crate::database::tables::tables::TableIndex;
 use crate::database::tables::{Query, Record};
 use crate::database::transactions::tx::*;
 use crate::database::types::IteratorDB;
-use crate::database::{api::response::*, tables::tables::Table};
 use crate::interpreter::*;
 
 use tracing::{debug, error, info, instrument};
@@ -59,7 +59,6 @@ pub(crate) fn select_where(
     if let Some((table_idx, stmt_idx)) = find_index(table, &where_col_map) {
         debug!(?table_idx, ?stmt_idx, "index for WHERE clause");
 
-        // query the database
         let scan = scan_db(table, table_idx, stmt_idx, &tx.tree)?;
 
         // filter results against non-indexed WHERE clauses

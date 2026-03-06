@@ -39,6 +39,7 @@ impl<'a> Parser<'a> {
                 Token::Eof => break,
                 Token::Keyword(Keyword::Select) => statements.push(parse_select(&mut parser)?),
                 Token::Keyword(Keyword::Insert) => statements.push(parse_insert(&mut parser)?),
+                Token::Keyword(Keyword::Update) => statements.push(parse_update(&mut parser)?),
                 _ => {
                     return Err(ParseError::InvalidToken {
                         expected: "statement keyword".to_string(),
@@ -309,15 +310,24 @@ pub fn parse_limit(parser: &mut Parser) -> Result<StatementLimit> {
     info!("parsing LIMIT clause");
 
     parser.next();
-    match parse_expression_statement(parser)
+    let expr = parse_expression_statement(parser)
         .ok_or_else(|| ParseError::ParseError("parsing LIMIT clause failed"))?
-        .evaluate()?
-    {
+        .evaluate()?;
+    parser.next();
+    match expr {
         ValueObject::Str(_) => {
             return Err(ParseError::ParseError("cant use strings for limit clause").into());
         }
         ValueObject::Int(i) => Ok(StatementLimit(i)),
     }
+}
+
+pub fn parse_order(parser: &mut Parser) -> Result<StatementOrder> {
+    info!("parsing ORDER clause");
+
+    parser.next();
+    let column = parse_identifier(parser)?;
+    Ok(StatementOrder { column })
 }
 
 pub fn parse_expression_statement(parser: &mut Parser) -> Option<Box<dyn Expression>> {
