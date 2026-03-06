@@ -14,6 +14,7 @@ pub enum Statement {
     Update(UpdateStatement),
     Delete(DeleteStatement),
     Create(CreateStatement),
+    Drop(DropStatement),
 }
 
 pub trait StatementInterface {
@@ -590,13 +591,163 @@ fn parse_create_table(parser: &mut Parser) -> Result<Statement> {
     }
 }
 
+#[derive(Debug)]
+pub struct CreateIndexStatement {
+    table_name: String,
+    idx_name: String,
+    col_name: String,
+}
+
+impl CreateIndexStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+        is_valid_identifier(&self.idx_name)?;
+        is_valid_identifier(&self.col_name)?;
+        Ok(())
+    }
+}
+
+// CREATE INDEX idx_name ON table_name FOR col_name;
 fn parse_create_index(parser: &mut Parser) -> Result<Statement> {
-    todo!()
+    info!("parsing CREATE INDEX statment");
+
+    parser.next();
+
+    let idx_name = parse_identifier(parser)?;
+    parse_token(parser, Token::Keyword(Keyword::On))?;
+    let table_name = parse_identifier(parser)?;
+    parse_token(parser, Token::Keyword(Keyword::For))?;
+    let col_name = parse_identifier(parser)?;
+
+    match &parser.lexer.current {
+        Token::Seperator(Seperator::Semicolon) => {
+            let statement = CreateIndexStatement {
+                table_name,
+                idx_name,
+                col_name,
+            };
+            statement.validate()?;
+
+            Ok(Statement::Create(CreateStatement::Index(statement)))
+        }
+        t => {
+            let err = ParseError::InvalidToken {
+                expected: "expected semicolon".to_string(),
+                got: t.to_string(),
+            };
+            error!("{err}");
+            Err(err.into())
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct CreateIndexStatement {}
+pub enum DropStatement {
+    Table(DropTableStatement),
+    Index(DropIndexStatement),
+}
 
+pub fn parse_drop(parser: &mut Parser) -> Result<Statement> {
+    if let Some(token) = parser.next() {
+        debug!("parsing {token:?}");
+
+        match token {
+            Token::Keyword(Keyword::Table) => parse_drop_table(parser),
+            Token::Keyword(Keyword::Index) => parse_drop_index(parser),
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected INDEX or TABLE".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        }
+    } else {
+        error!("expected TABLE or INDEX, got EOF");
+        Err(ParseError::ParseError("expected TABLE or INDEX, got EOF").into())
+    }
+}
+
+#[derive(Debug)]
+pub struct DropTableStatement {
+    table_name: String,
+}
+
+impl DropTableStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+        Ok(())
+    }
+}
+
+fn parse_drop_table(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing DROP TABLE statement");
+
+    parser.next();
+
+    let table_name = parse_identifier(parser)?;
+
+    debug!("parsing token {:?}", &parser.lexer.current);
+    match &parser.lexer.current {
+        Token::Seperator(Seperator::Semicolon) => {
+            let statement = DropTableStatement { table_name };
+            statement.validate()?;
+            Ok(Statement::Drop(DropStatement::Table(statement)))
+        }
+        t => {
+            let err = ParseError::InvalidToken {
+                expected: "expected semicolon".to_string(),
+                got: t.to_string(),
+            };
+            error!("{err}");
+            Err(err.into())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DropIndexStatement {
+    idx_name: String,
+    table_name: String,
+}
+
+impl DropIndexStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+        is_valid_identifier(&self.idx_name)?;
+        Ok(())
+    }
+}
+
+fn parse_drop_index(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing DROP INDEX statement");
+
+    parser.next();
+    let idx_name = parse_identifier(parser)?;
+    parse_token(parser, Token::Keyword(Keyword::From))?;
+    let table_name = parse_identifier(parser)?;
+
+    debug!("parsing token {:?}", &parser.lexer.current);
+    match &parser.lexer.current {
+        Token::Seperator(Seperator::Semicolon) => {
+            let statement = DropIndexStatement {
+                idx_name,
+                table_name,
+            };
+            statement.validate()?;
+            Ok(Statement::Drop(DropStatement::Index(statement)))
+        }
+        t => {
+            let err = ParseError::InvalidToken {
+                expected: "expected semicolon".to_string(),
+                got: t.to_string(),
+            };
+            error!("{err}");
+            Err(err.into())
+        }
+    }
+}
 #[cfg(test)]
 mod parser_test {
     use super::*;
@@ -613,28 +764,31 @@ mod parser_test {
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
+    }
 
+    #[test]
+    fn select_parse_neg() {
         // negative cases
         let input = r#"
-            SELECT , FROM;
+        SELECT , FROM;
         "#;
         let res = Parser::parse(input);
         assert!(res.is_err());
 
         let input = r#"
-            SELECT FROM mytable;
+        SELECT FROM mytable;
         "#;
         let res = Parser::parse(input);
         assert!(res.is_err());
 
         let input = r#"
-            SELECT * FROM mytable WHERE;
+        SELECT * FROM mytable WHERE;
         "#;
         let res = Parser::parse(input);
         assert!(res.is_err());
 
         let input = r#"
-            SELECT * FROM mytable WHERE col1;
+        SELECT * FROM mytable WHERE col1;
         "#;
         let res = Parser::parse(input);
         assert!(res.is_err());
@@ -673,7 +827,37 @@ mod parser_test {
     #[test]
     fn createtable_parse1() {
         let input = r#"
-            CREATE TABLE mytable (col1 = INT, col2 = STRING, col3 = STRING);
+            CREATE TABLE mytable (col1 = INT, col2 = STR, col3 = STR);
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn createindex_parse1() {
+        let input = r#"
+            CREATE INDEX newindex ON mytable FOR col1;
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn droptable_parse1() {
+        let input = r#"
+            DROP TABLE mytable;
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn dropindex_parse1() {
+        let input = r#"
+            DROP INDEX myidx FROM mytable;
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
@@ -687,9 +871,15 @@ mod parser_test {
            UPDATE mytable SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
            SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
            DELETE FROM mytable WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
+
+           CREATE TABLE mytable (col1 = INT, col2 = STR, col3 = STR);
+           CREATE INDEX newindex ON mytable FOR col1;
+
+           DROP TABLE mytable;
+           DROP INDEX myidx FROM mytable;
            "#;
         let res = Parser::parse(input);
-        assert_eq!(res.as_ref().unwrap().len(), 4);
+        assert_eq!(res.as_ref().unwrap().len(), 8);
         for stmt in res.unwrap() {
             println!("{stmt:?}");
         }

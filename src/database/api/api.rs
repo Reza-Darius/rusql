@@ -48,6 +48,7 @@ impl Database {
             Statement::Update(update_statement) => todo!(),
             Statement::Delete(delete_statement) => todo!(),
             Statement::Create(create_statement) => todo!(),
+            Statement::Drop(drop_statement) => todo!(),
         };
 
         if res.is_err() {

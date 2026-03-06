@@ -43,6 +43,7 @@ impl<'a> Parser<'a> {
                 Token::Keyword(Keyword::Update) => statements.push(parse_update(&mut parser)?),
                 Token::Keyword(Keyword::Delete) => statements.push(parse_delete(&mut parser)?),
                 Token::Keyword(Keyword::Create) => statements.push(parse_create(&mut parser)?),
+                Token::Keyword(Keyword::Drop) => statements.push(parse_drop(&mut parser)?),
                 _ => {
                     return Err(ParseError::InvalidToken {
                         expected: "statement keyword".to_string(),
@@ -273,7 +274,7 @@ pub fn parse_create_column(parser: &mut Parser) -> Result<CreateColumn> {
                 data_type = DataType::Int;
             }
 
-            Token::Keyword(Keyword::String) => {
+            Token::Keyword(Keyword::Str) => {
                 data_type = DataType::Str;
             }
             t => {

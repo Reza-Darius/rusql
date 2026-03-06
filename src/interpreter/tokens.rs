@@ -35,6 +35,7 @@ pub enum Keyword {
     Update,
     Delete,
     Create,
+    Drop,
 
     Order,
     Set,
@@ -42,6 +43,8 @@ pub enum Keyword {
     All,
     And,
     Or,
+    On,
+    For,
     Not,
     From,
     Into,
@@ -51,7 +54,7 @@ pub enum Keyword {
     Index,
 
     Int,
-    String,
+    Str,
 }
 
 pub const SELECT: &str = "select";
@@ -59,13 +62,16 @@ pub const INSERT: &str = "insert";
 pub const UPDATE: &str = "update";
 pub const DELETE: &str = "delete";
 pub const CREATE: &str = "create";
-pub const VALUES: &str = "values";
+pub const DROP: &str = "drop";
 
+pub const VALUES: &str = "values";
 pub const ORDER: &str = "order";
 pub const SET: &str = "set";
 pub const ALL: &str = "all";
 pub const AND: &str = "and";
 pub const OR: &str = "or";
+pub const ON: &str = "on";
+pub const FOR: &str = "for";
 pub const NOT: &str = "not";
 pub const FROM: &str = "from";
 pub const INTO: &str = "into";
@@ -75,7 +81,7 @@ pub const TABLE: &str = "table";
 pub const INDEX: &str = "index";
 
 pub const INT: &str = "int";
-pub const STRING: &str = "string";
+pub const STRING: &str = "str";
 
 thread_local! {
     pub static KEYWORDS: HashMap<&'static str, Keyword> =  {
@@ -86,13 +92,16 @@ thread_local! {
         map.insert(UPDATE, Keyword::Update);
         map.insert(DELETE, Keyword::Delete);
         map.insert(CREATE, Keyword::Create);
-        map.insert(VALUES, Keyword::Values);
+        map.insert(DROP, Keyword::Drop);
 
-        map.insert(ORDER, Keyword::Order);
+        map.insert(VALUES, Keyword::Values);
+ map.insert(ORDER, Keyword::Order);
         map.insert(SET, Keyword::Set);
         map.insert(ALL, Keyword::All);
         map.insert(AND, Keyword::And);
         map.insert(OR, Keyword::Or);
+        map.insert(FOR, Keyword::For);
+        map.insert(ON, Keyword::On);
         map.insert(NOT, Keyword::Not);
 
         map.insert(FROM, Keyword::From);
@@ -102,9 +111,8 @@ thread_local! {
         map.insert(TABLE, Keyword::Table);
         map.insert(INDEX, Keyword::Index);
 
-
         map.insert(INT, Keyword::Int);
-        map.insert(STRING, Keyword::String);
+        map.insert(STRING, Keyword::Str);
         map
     }
 }
