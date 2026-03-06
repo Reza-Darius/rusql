@@ -502,7 +502,8 @@ mod parser_test {
     #[test]
     fn delete_parse1() {
         let input = r#"
-            DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2;
+            DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
+            DELETE FROM table;
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
@@ -515,9 +516,10 @@ mod parser_test {
            INSERT INTO table (col1, col2) VALUES (2*2), "Hello";
            UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
            SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+           DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
            "#;
         let res = Parser::parse(input);
-        assert_eq!(res.as_ref().unwrap().len(), 3);
+        assert_eq!(res.as_ref().unwrap().len(), 4);
         for stmt in res.unwrap() {
             println!("{stmt:?}");
         }
