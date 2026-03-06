@@ -40,6 +40,7 @@ impl<'a> Parser<'a> {
                 Token::Keyword(Keyword::Select) => statements.push(parse_select(&mut parser)?),
                 Token::Keyword(Keyword::Insert) => statements.push(parse_insert(&mut parser)?),
                 Token::Keyword(Keyword::Update) => statements.push(parse_update(&mut parser)?),
+                Token::Keyword(Keyword::Delete) => statements.push(parse_delete(&mut parser)?),
                 _ => {
                     return Err(ParseError::InvalidToken {
                         expected: "statement keyword".to_string(),

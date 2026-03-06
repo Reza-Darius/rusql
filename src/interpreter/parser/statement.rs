@@ -187,6 +187,7 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
     // parsing VALUES
     loop {
         debug!("parsing token {:?}", &parser.lexer.current);
+
         match &parser.lexer.current {
             Token::Seperator(Seperator::Comma) | Token::Seperator(Seperator::RParen) => {
                 parser.next();
@@ -408,6 +409,7 @@ pub fn parse_delete(parser: &mut Parser) -> Result<Statement> {
     // optional index or limit clause
     loop {
         debug!("parsing token {:?}", &parser.lexer.current);
+
         match &parser.lexer.current {
             Token::Seperator(Seperator::Semicolon) => {
                 statement.validate()?;
@@ -491,6 +493,16 @@ mod parser_test {
         let input = r#"
             UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5 ORDER col1;
             UPDATE table SET col = "hello" WHERE col <= "hi" ORDER col LIMIT 2;
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn delete_parse1() {
+        let input = r#"
+            DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2;
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
