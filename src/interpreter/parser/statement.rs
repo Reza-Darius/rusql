@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use tracing::{debug, error, info, instrument};
 
 use crate::database::errors::{ParseError, Result};
@@ -33,6 +35,12 @@ impl SelectStatement {
         self.columns.is_valid()?;
 
         if let Some(indices) = &self.index {
+            if indices.is_empty() {
+                error!("no indices provided for where clause");
+                return Err(
+                    ParseError::ValidationError("no indices provided for where clause").into(),
+                );
+            }
             for index in indices.iter() {
                 index.is_valid(Some(&self.columns))?;
             }
@@ -460,8 +468,134 @@ pub fn parse_delete(parser: &mut Parser) -> Result<Statement> {
     }
 }
 
+// CREATE TABLE table_name (
+// 	column_1 data_type,
+//  column_2 data_type,
+// 	column_3 data_type,
+// );
+
 #[derive(Debug)]
-pub struct CreateStatement;
+pub enum CreateStatement {
+    Table(CreateTableStatement),
+    Index(CreateIndexStatement),
+}
+
+#[derive(Debug)]
+pub struct CreateTableStatement {
+    table_name: String,
+    columns: Vec<CreateColumn>,
+}
+
+impl CreateTableStatement {
+    fn validate(&self) -> Result<()> {
+        is_valid_identifier(&self.table_name)?;
+
+        if self.columns.is_empty() {
+            error!("no columns for table creation provided");
+            return Err(
+                ParseError::ValidationError("no columns for table creation provided").into(),
+            );
+        }
+
+        let mut set = HashSet::with_capacity(self.columns.len());
+
+        for create_col in self.columns.iter() {
+            create_col.is_valid()?;
+
+            // checking for duplicates
+            if !set.insert(create_col.col_name.as_str()) {
+                error!("cant create tables with duplicate names");
+                return Err(
+                    ParseError::ValidationError("cant create tables with duplicate names").into(),
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[instrument(skip_all)]
+pub fn parse_create(parser: &mut Parser) -> Result<Statement> {
+    if let Some(token) = parser.next() {
+        debug!("parsing {token:?}");
+
+        match token {
+            Token::Keyword(Keyword::Table) => parse_create_table(parser),
+            Token::Keyword(Keyword::Index) => parse_create_index(parser),
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected INDEX or TABLE".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        }
+    } else {
+        error!("expected TABLE or INDEX, got EOF");
+        Err(ParseError::ParseError("expected TABLE or INDEX, got EOF").into())
+    }
+}
+
+fn parse_create_table(parser: &mut Parser) -> Result<Statement> {
+    info!("parsing CREATE TABLE statement");
+
+    parser.next();
+
+    let table_name = parse_identifier(parser)?;
+    let mut statement = CreateTableStatement {
+        table_name,
+        columns: vec![],
+    };
+
+    parse_token(parser, Token::Seperator(Seperator::LParen))?;
+    loop {
+        debug!("parsing token {:?}", &parser.lexer.current);
+
+        match &parser.lexer.current {
+            Token::Seperator(Seperator::Comma) => {
+                parser.next();
+                continue;
+            }
+            Token::Seperator(Seperator::RParen) => {
+                parser.next();
+                match &parser.lexer.current {
+                    Token::Seperator(Seperator::Semicolon) => {
+                        statement.validate()?;
+                        return Ok(Statement::Create(CreateStatement::Table(statement)));
+                    }
+                    t => {
+                        let err = ParseError::InvalidToken {
+                            expected: "expected semicolon".to_string(),
+                            got: t.to_string(),
+                        };
+                        error!("{err}");
+                        return Err(err.into());
+                    }
+                }
+            }
+            Token::Ident(_) => {
+                statement.columns.push(parse_create_column(parser)?);
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected column identifier".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        }
+    }
+}
+
+fn parse_create_index(parser: &mut Parser) -> Result<Statement> {
+    todo!()
+}
+
+#[derive(Debug)]
+pub struct CreateIndexStatement {}
 
 #[cfg(test)]
 mod parser_test {
@@ -470,19 +604,45 @@ mod parser_test {
 
     #[test]
     fn select_parse1() {
+        // positive cases
         let input = r#"
-            SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
-            SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7 ORDER col2;
-            SELECT * FROM table ORDER col1;
+            SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+            SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7 ORDER col2;
+            SELECT * FROM mytable ORDER col1;
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
+
+        // negative cases
+        let input = r#"
+            SELECT , FROM;
+        "#;
+        let res = Parser::parse(input);
+        assert!(res.is_err());
+
+        let input = r#"
+            SELECT FROM mytable;
+        "#;
+        let res = Parser::parse(input);
+        assert!(res.is_err());
+
+        let input = r#"
+            SELECT * FROM mytable WHERE;
+        "#;
+        let res = Parser::parse(input);
+        assert!(res.is_err());
+
+        let input = r#"
+            SELECT * FROM mytable WHERE col1;
+        "#;
+        let res = Parser::parse(input);
+        assert!(res.is_err());
     }
 
     #[test]
     fn insert_parse1() {
-        let input = "INSERT INTO table (col1, col2) VALUES (2*2), \"Hello\";";
+        let input = "INSERT INTO mytable (col1, col2) VALUES (2*2), \"Hello\";";
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
@@ -491,8 +651,8 @@ mod parser_test {
     #[test]
     fn update_parse1() {
         let input = r#"
-            UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5 ORDER col1;
-            UPDATE table SET col = "hello" WHERE col <= "hi" ORDER col LIMIT 2;
+            UPDATE mytable SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5 ORDER col1;
+            UPDATE mytable SET col = "hello" WHERE col <= "hi" ORDER col LIMIT 2;
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
@@ -502,8 +662,18 @@ mod parser_test {
     #[test]
     fn delete_parse1() {
         let input = r#"
-            DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
-            DELETE FROM table;
+            DELETE FROM mytable WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
+            DELETE FROM mytable;
+        "#;
+        let res = Parser::parse(input);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn createtable_parse1() {
+        let input = r#"
+            CREATE TABLE mytable (col1 = INT, col2 = STRING, col3 = STRING);
         "#;
         let res = Parser::parse(input);
         println!("{:?}", res);
@@ -513,10 +683,10 @@ mod parser_test {
     #[test]
     fn composite_parse1() {
         let input = r#"
-           INSERT INTO table (col1, col2) VALUES (2*2), "Hello";
-           UPDATE table SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
-           SELECT col1, col2 FROM table WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
-           DELETE FROM table WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
+           INSERT INTO mytable (col1, col2) VALUES (2*2), "Hello";
+           UPDATE mytable SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
+           SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+           DELETE FROM mytable WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
            "#;
         let res = Parser::parse(input);
         assert_eq!(res.as_ref().unwrap().len(), 4);

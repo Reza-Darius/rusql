@@ -1,3 +1,4 @@
+use tracing::error;
 use tracing::{debug, info};
 
 use crate::database::errors::*;
@@ -41,6 +42,7 @@ impl<'a> Parser<'a> {
                 Token::Keyword(Keyword::Insert) => statements.push(parse_insert(&mut parser)?),
                 Token::Keyword(Keyword::Update) => statements.push(parse_update(&mut parser)?),
                 Token::Keyword(Keyword::Delete) => statements.push(parse_delete(&mut parser)?),
+                Token::Keyword(Keyword::Create) => statements.push(parse_create(&mut parser)?),
                 _ => {
                     return Err(ParseError::InvalidToken {
                         expected: "statement keyword".to_string(),
@@ -238,6 +240,62 @@ pub fn parse_identifier(parser: &mut Parser) -> Result<String> {
     }
 }
 
+pub fn parse_create_column(parser: &mut Parser) -> Result<CreateColumn> {
+    let col_name;
+
+    if let Some(t) = parser.current() {
+        debug!("parsing creating column for token {t:?}");
+        match t {
+            Token::Ident(i) => {
+                col_name = i.clone();
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected column identifier".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        }
+    } else {
+        return Err(ParseError::ParseError("missing token").into());
+    }
+
+    parser.next();
+    parse_token(parser, Token::Operator(Operator::Assign))?;
+    let data_type;
+
+    if let Some(t) = parser.current() {
+        debug!("parsing data type for token {t:?}");
+        match t {
+            Token::Keyword(Keyword::Int) => {
+                data_type = DataType::Int;
+            }
+
+            Token::Keyword(Keyword::String) => {
+                data_type = DataType::Str;
+            }
+            t => {
+                let err = ParseError::InvalidToken {
+                    expected: "expected data type".to_string(),
+                    got: t.to_string(),
+                };
+                error!("{err}");
+                return Err(err.into());
+            }
+        }
+    } else {
+        return Err(ParseError::ParseError("missing token").into());
+    }
+
+    parser.next();
+
+    Ok(CreateColumn {
+        col_name,
+        data_type,
+    })
+}
 pub fn parse_index(parser: &mut Parser) -> Result<Vec<StatementIndex>> {
     debug!("parsing index");
 

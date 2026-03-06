@@ -47,6 +47,11 @@ pub enum Keyword {
     Into,
     Where,
     Limit,
+    Table,
+    Index,
+
+    Int,
+    String,
 }
 
 pub const SELECT: &str = "select";
@@ -66,6 +71,11 @@ pub const FROM: &str = "from";
 pub const INTO: &str = "into";
 pub const WHERE: &str = "where";
 pub const LIMIT: &str = "limit";
+pub const TABLE: &str = "table";
+pub const INDEX: &str = "index";
+
+pub const INT: &str = "int";
+pub const STRING: &str = "string";
 
 thread_local! {
     pub static KEYWORDS: HashMap<&'static str, Keyword> =  {
@@ -89,7 +99,12 @@ thread_local! {
         map.insert(INTO, Keyword::Into);
         map.insert(WHERE, Keyword::Where);
         map.insert(LIMIT, Keyword::Limit);
+        map.insert(TABLE, Keyword::Table);
+        map.insert(INDEX, Keyword::Index);
 
+
+        map.insert(INT, Keyword::Int);
+        map.insert(STRING, Keyword::String);
         map
     }
 }

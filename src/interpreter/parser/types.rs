@@ -47,6 +47,16 @@ pub fn is_valid_identifier(ident: &str) -> Result<()> {
     }
 }
 
+pub fn contains_duplicates(str: &[impl AsRef<str>]) -> bool {
+    let mut set = HashSet::new();
+    for s in str {
+        if !set.insert(s.as_ref()) {
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug)]
 pub struct StatementIndex {
     pub column: String,
@@ -92,11 +102,11 @@ impl StatementColumns {
                     error!("invalid columns");
                     return Err(ParseError::ValidationError("invalid columns").into());
                 }
-                if set.contains(col) {
+
+                if !set.insert(col) {
                     error!("cant list duplicate columns");
                     return Err(ParseError::ValidationError("cant list duplicate columns").into());
                 }
-                set.insert(col);
             }
         };
         Ok(())
@@ -140,6 +150,24 @@ impl StatementOrder {
     pub fn is_valid(&self) -> Result<()> {
         is_valid_col(&self.column)
     }
+}
+
+#[derive(Debug)]
+pub struct CreateColumn {
+    pub col_name: String,
+    pub data_type: DataType,
+}
+
+impl CreateColumn {
+    pub fn is_valid(&self) -> Result<()> {
+        is_valid_col(&self.col_name)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub enum DataType {
+    Int,
+    Str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
