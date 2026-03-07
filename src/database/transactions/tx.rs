@@ -301,7 +301,7 @@ impl TX {
         }
 
         self.key_range.listen();
-        let mut iter = rec
+        let mut rec_iter = rec
             .encode(schema)
             .map_err(|e| {
                 error!("record failed to encode {e}");
@@ -314,12 +314,12 @@ impl TX {
         let mut modified = 0;
 
         // updating the primary key and retrieving the old one
-        let primay_key = iter.next().ok_or_else(|| {
+        let pkey_row = rec_iter.next().ok_or_else(|| {
             error!("record failed to generate a primary key");
             Error::InsertError("record failed to generate a primary key".to_string())
         })?;
 
-        let res = self.tree_set(primay_key.0, primay_key.1, flag);
+        let res = self.tree_set(pkey_row.0, pkey_row.1, flag);
         if let Ok(ref r) = res {
             if r.updated || r.added {
                 self.key_range.capture_and_listen();
@@ -328,7 +328,7 @@ impl TX {
             }
         }
 
-        if iter.peek().is_none() {
+        if rec_iter.peek().is_none() {
             // there are no secondary keys, we are done
             return Ok(modified);
         }
@@ -343,7 +343,7 @@ impl TX {
                 old_rec.next(); // we skip the primary key since we already updated it
 
                 // updating secondary keys
-                for (k, v) in iter {
+                for (k, v) in rec_iter {
                     if let Some(old_kv) = old_rec.next() {
                         let res = self.tree_delete(old_kv.0)?;
                         if res.deleted {
@@ -366,7 +366,7 @@ impl TX {
             }
             // INSERT only
             Ok(res) if res.added => {
-                for (k, v) in iter {
+                for (k, v) in rec_iter {
                     // inserting secondary keys
                     let res = self.tree_set(k, v, SetFlag::INSERT)?;
                     self.key_range.capture_and_listen();
