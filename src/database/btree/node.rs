@@ -375,7 +375,7 @@ impl TreeNode {
             }
             // only update existing
             SetFlag::UPDATE => {
-                if key_exists {
+                if key_exists && val != old_v {
                     // debug!("updating {} {} with {} {}", old_k, old_v, key, val);
                     self.leaf_kvupdate(node, idx, key.as_ref(), val).unwrap();
                     res.updated = true;

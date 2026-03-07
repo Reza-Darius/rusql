@@ -35,6 +35,10 @@ impl Record {
         self
     }
 
+    pub fn insert(&mut self, index: usize, data: impl InputData) {
+        self.data[index] = data.into_cell();
+    }
+
     /// encodes a record into the necessary key value pairs to fulfill all indices of a given table
     pub fn encode(self, table: &Table) -> Result<impl Iterator<Item = (Key, Value)>> {
         debug!(data=?self.data, "encoding");
@@ -239,6 +243,14 @@ impl Record {
 
     pub fn into_vec(self) -> Vec<DataCell> {
         self.data
+    }
+}
+
+impl From<&[DataCell]> for Record {
+    fn from(value: &[DataCell]) -> Self {
+        Record {
+            data: value.to_vec(),
+        }
     }
 }
 

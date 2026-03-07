@@ -58,6 +58,44 @@ impl SelectStatement {
     }
 }
 
+impl std::fmt::Display for SelectStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SELECT\n")?;
+
+        match &self.columns {
+            StatementColumns::Wildcard => write!(f, "WILDCARD\n")?,
+            StatementColumns::Cols(columns) => {
+                for col in columns {
+                    write!(f, "{col} ")?;
+                }
+                write!(f, "\n")?;
+            }
+        }
+
+        write!(f, "FROM {}\n", &self.table_name)?;
+
+        if let Some(indices) = &self.index {
+            write!(f, "WHERE\n")?;
+            for index in indices {
+                write!(f, "{index:?}, ")?;
+            }
+            write!(f, "\n")?;
+        }
+
+        if let Some(limit) = &self.limit {
+            write!(f, "LIMIT\n")?;
+            write!(f, "{:?}\n", limit)?;
+        }
+
+        if let Some(order) = &self.order {
+            write!(f, "ORDER\n")?;
+            write!(f, "{:?}\n", order)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl StatementInterface for SelectStatement {
     fn get_limit(&self) -> Option<usize> {
         self.limit.as_ref().map(|limit| limit.0 as usize)
@@ -230,11 +268,11 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct UpdateStatement {
-    table_name: String,
-    set: Vec<StatementSet>,
-    index: Option<Vec<StatementIndex>>,
-    order: Option<StatementOrder>,
-    limit: Option<StatementLimit>,
+    pub table_name: String,
+    pub set: Vec<StatementSet>,
+    pub index: Option<Vec<StatementIndex>>,
+    pub order: Option<StatementOrder>,
+    pub limit: Option<StatementLimit>,
 }
 
 impl UpdateStatement {
@@ -768,30 +806,20 @@ mod parser_test {
 
     #[test]
     fn select_parse_neg() {
-        // negative cases
         let input = r#"
-        SELECT , FROM;
-        "#;
-        let res = Parser::parse(input);
-        assert!(res.is_err());
+            SELECT , FROM;
+            SELECT FROM mytable;
+            SELECT * FROM mytable WHERE;
+            SELECT * FROM mytable WHERE col1;
+            "#;
 
-        let input = r#"
-        SELECT FROM mytable;
-        "#;
-        let res = Parser::parse(input);
-        assert!(res.is_err());
+        let all_err = input
+            .trim()
+            .split_inclusive(';')
+            .map(Parser::parse)
+            .all(|res| res.is_err());
 
-        let input = r#"
-        SELECT * FROM mytable WHERE;
-        "#;
-        let res = Parser::parse(input);
-        assert!(res.is_err());
-
-        let input = r#"
-        SELECT * FROM mytable WHERE col1;
-        "#;
-        let res = Parser::parse(input);
-        assert!(res.is_err());
+        assert!(all_err);
     }
 
     #[test]
@@ -800,6 +828,25 @@ mod parser_test {
         let res = Parser::parse(input);
         println!("{:?}", res);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn insert_parser_neg1() {
+        let input = r#"
+            INSERT INTO (col1, col2) VALUES 5, "Hello";
+            INSERT INTO mytable (col2) VALUES 5, "Hello";
+            INSERT INTO mytable (col1, col2) VALUES "Hello";
+            INSERT INTO mytable (col1, col2) VALUES;
+            INSERT INTO mytable (col1, col1) VALUES 5, "hello";
+            "#;
+
+        let all_err = input
+            .trim()
+            .split_inclusive(';')
+            .map(Parser::parse)
+            .all(|res| res.is_err());
+
+        assert!(all_err);
     }
 
     #[test]
@@ -867,13 +914,13 @@ mod parser_test {
     #[test]
     fn composite_parse1() {
         let input = r#"
+           SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
            INSERT INTO mytable (col1, col2) VALUES (2*2), "Hello";
            UPDATE mytable SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
-           SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
            DELETE FROM mytable WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
 
            CREATE TABLE mytable (col1 = INT, col2 = STR, col3 = STR);
-           CREATE INDEX newindex ON mytable FOR col1;
+           CREATE INDEX myidx ON mytable FOR col1;
 
            DROP TABLE mytable;
            DROP INDEX myidx FROM mytable;

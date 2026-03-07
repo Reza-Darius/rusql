@@ -10,13 +10,14 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct DBResponse {
-    pub(crate) query_result: Option<SelectResponse>,
+    pub(crate) query: String,
+    pub(crate) select_result: Option<SelectResponse>,
     pub(crate) modified: u32,
 }
 
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.query_result {
+        match &self.select_result {
             Some(res) => write!(f, "{res}"),
             None => write!(f, "No Result"),
         }
@@ -26,7 +27,7 @@ impl fmt::Display for DBResponse {
 impl From<SelectResponse> for DBResponse {
     fn from(value: SelectResponse) -> Self {
         Self {
-            query_result: Some(value),
+            select_result: Some(value),
             ..Default::default()
         }
     }

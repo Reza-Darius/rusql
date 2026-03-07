@@ -407,7 +407,7 @@ pub(crate) mod execute_select {
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
         assert_eq!(rows.len(), 2);
 
         assert_eq!(&rows[0][0], "Alice");
@@ -424,7 +424,7 @@ pub(crate) mod execute_select {
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 2);
 
@@ -442,7 +442,7 @@ pub(crate) mod execute_select {
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
         assert_eq!(rows.len(), 1);
 
         assert_eq!(&rows[0][0], "20");
@@ -453,7 +453,7 @@ pub(crate) mod execute_select {
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
         assert_eq!(rows.len(), 3);
 
         assert_eq!(&rows[0][0], "Alice");
@@ -483,7 +483,7 @@ pub(crate) mod execute_select {
         let rows = res
             .as_ref()
             .unwrap()
-            .query_result
+            .select_result
             .as_ref()
             .unwrap()
             .get_rows();
@@ -499,7 +499,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE job >= "clerk";"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 4);
 
@@ -508,7 +508,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE job < "clerk";"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(&rows[0][0], "5");
@@ -521,7 +521,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age >= 20, job = "clerk";"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(&rows[0][0], "1");
@@ -534,7 +534,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age > 15;"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 5);
         println!("{query}\n{}", res);
@@ -542,7 +542,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age < 20;"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 1);
         println!("{query}\n{}", res);
@@ -550,7 +550,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age > 20;"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 1);
         println!("{query}\n{}", res);
@@ -558,7 +558,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age >= 20;"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 4);
         println!("{query}\n{}", res);
@@ -566,7 +566,7 @@ pub(crate) mod execute_select {
         let query = r#"SELECT * FROM mytable WHERE age <= 20;"#;
         let mut stmt = Parser::parse(query)?;
         let res = db.execute(stmt.remove(0))?;
-        let rows = res.query_result.as_ref().unwrap().get_rows();
+        let rows = res.select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 4);
         println!("{query}\n{}", res);
@@ -584,7 +584,7 @@ pub(crate) mod execute_select {
         let mut stmt = Parser::parse(query)?;
 
         let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.query_result.unwrap().len(), 0);
+        assert_eq!(res.select_result.unwrap().len(), 0);
 
         let query = "SELECT asdfgsd FROM mytable WHERE id = 3;";
         let mut stmt = Parser::parse(query)?;

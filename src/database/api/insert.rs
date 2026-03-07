@@ -10,7 +10,7 @@ use tracing::{error, info, instrument};
 // INSERT INTO table (col1, col2) VALUES (2*2), "Hello"
 #[instrument(skip_all)]
 pub fn exec_insert(tx: &mut TX, stmt: InsertStatement) -> Result<DBResponse> {
-    info!(?stmt, "executing insert statemetn");
+    info!(?stmt, "executing insert statement");
 
     let table = tx.get_table(&stmt.table_name).ok_or_else(|| {
         error!(table = stmt.table_name, "table not found");
@@ -38,8 +38,9 @@ pub fn exec_insert(tx: &mut TX, stmt: InsertStatement) -> Result<DBResponse> {
     let modified = tx.insert_rec(rec, &table, SetFlag::INSERT)?;
 
     Ok(DBResponse {
-        query_result: None,
+        select_result: None,
         modified,
+        ..Default::default()
     })
 }
 
@@ -125,7 +126,7 @@ mod execute_insert {
 
         let query = r#"SELECT * FROM mytable;"#;
         let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.query_result.unwrap();
+        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
         assert_eq!(res.len(), 3);
 
         let rows = res.get_rows();
@@ -209,12 +210,12 @@ mod execute_insert {
 
         let query = r#"SELECT * FROM mytable;"#;
         let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.query_result.unwrap();
+        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
         assert_eq!(res.len(), 3);
 
         let query = r#"SELECT age FROM mytable;"#;
         let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.query_result.unwrap();
+        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
         assert_eq!(res.len(), 3);
 
         cleanup_file(path);

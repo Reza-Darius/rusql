@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::database::api::insert::exec_insert;
 use crate::database::api::response::DBResponse;
 use crate::database::api::select::exec_select;
+use crate::database::api::update::exec_update;
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::transactions::kvdb::*;
@@ -45,7 +46,7 @@ impl Database {
         let res = match statement {
             Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
             Statement::Insert(insert_statement) => exec_insert(&mut tx, insert_statement),
-            Statement::Update(update_statement) => todo!(),
+            Statement::Update(update_statement) => exec_update(&mut tx, update_statement),
             Statement::Delete(delete_statement) => todo!(),
             Statement::Create(create_statement) => todo!(),
             Statement::Drop(drop_statement) => todo!(),

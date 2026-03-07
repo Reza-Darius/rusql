@@ -106,10 +106,18 @@ impl<P: Pager> Tree for BTree<P> {
             }
         };
 
-        // recursively insert kv
-        let updated_root = self
-            .tree_insert(root.unwrap_tn(), key, val, flag, &mut res)
-            .ok_or_else(|| Error::InsertError("couldnt fulfill set request".to_string()))?;
+        // // recursively insert kv
+        // let updated_root = self
+        //     .tree_insert(root.unwrap_tn(), key, val, flag, &mut res)
+        //     .ok_or_else(|| Error::InsertError("couldnt fulfill set request".to_string()))?;
+
+        let updated_root = match self.tree_insert(root.unwrap_tn(), key, val, flag, &mut res) {
+            Some(node) => node,
+            None if flag == SetFlag::UPDATE => return Ok(res),
+            None => {
+                return Err(Error::InsertError("couldnt fulfill set request".to_string()).into());
+            }
+        };
 
         if res.added {
             self.len += 1;

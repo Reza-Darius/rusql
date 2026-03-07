@@ -1,5 +1,5 @@
-use tracing::error;
 use tracing::{debug, info};
+use tracing::{error, instrument};
 
 use crate::database::errors::*;
 use crate::interpreter::parser::eval::*;
@@ -30,6 +30,7 @@ impl<'a> Parser<'a> {
         self.lexer.current()
     }
 
+    #[instrument(skip_all)]
     pub fn parse(input: &'a str) -> Result<Vec<Statement>> {
         let mut parser = Parser::new(input);
         let mut statements = vec![];

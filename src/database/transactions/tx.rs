@@ -378,6 +378,8 @@ impl TX {
                     modified += 1;
                 }
             }
+            // UPDATE on existing key/value
+            Ok(res) if !res.updated && !res.added => return Ok(modified),
             // Key couldnt be inserted/updated
             Err(e) => {
                 error!("couldnt insert record");
@@ -933,16 +935,28 @@ mod tables {
         assert_eq!(res[1].to_string(), "Bob 15");
         assert_eq!(res[2].to_string(), "Charlie 25");
 
+        // update entries
+        let mut entrie_t3 = vec![];
+        entrie_t3.push(Record::new().add(20).add("Alice").add("new_job"));
+        entrie_t3.push(Record::new().add(15).add("Bob").add("new_job"));
+        entrie_t3.push(Record::new().add(25).add("Charlie").add("new_job"));
+
+        for entry in entrie_t3 {
+            tx.insert_rec(entry, &table2, SetFlag::UPDATE)?;
+        }
+
         let res = Scanner::open(
-            Query::by_col(&table2).add("id", 20).encode()?,
+            Query::by_col(&table2).add("id", 15).encode()?,
             Compare::Ge,
             &tx.tree,
         )
         .collect_records();
 
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[0].to_string(), "20 Alice teacher");
-        assert_eq!(res[1].to_string(), "25 Charlie fire fighter");
+        assert_eq!(res.len(), 3);
+
+        assert_eq!(res[0].to_string(), "15 Bob new_job");
+        assert_eq!(res[1].to_string(), "20 Alice new_job");
+        assert_eq!(res[2].to_string(), "25 Charlie new_job");
 
         db.commit(tx)?;
         cleanup_file(path);
