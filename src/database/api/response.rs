@@ -15,6 +15,12 @@ pub struct DBResponse {
     pub(crate) modified: u32,
 }
 
+impl DBResponse {
+    pub fn get_rows(&self) -> Option<&[Vec<String>]> {
+        self.select_result.as_ref().map(|r| r.get_rows())
+    }
+}
+
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.select_result {

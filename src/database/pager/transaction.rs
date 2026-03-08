@@ -61,6 +61,11 @@ impl Transaction for DiskPager {
 
     fn abort(&self, tx: TX) -> Result<CommitStatus> {
         debug!("aborting...");
+        if tx.kind == TXKind::Read {
+            self.ongoing.write().pop(tx.version);
+            return Ok(CommitStatus::Failed);
+        }
+
         if tx.version > self.version.load(Ordering::Acquire) {
             // the database was rolled back
             return Ok(CommitStatus::StaleVersion);
@@ -342,7 +347,9 @@ impl DiskPager {
             tx.key_range.debug_print();
         });
 
-        assert!(!tx.key_range.recorded.is_empty());
+        if tx.key_range.recorded.is_empty() {
+            return false;
+        }
 
         // check the history
         let borrow = self.history.read();

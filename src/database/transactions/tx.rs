@@ -344,24 +344,49 @@ impl TX {
 
                 // updating secondary keys
                 for (k, v) in rec_iter {
-                    if let Some(old_kv) = old_rec.next() {
-                        let res = self.tree_delete(old_kv.0)?;
-                        if res.deleted {
+                    match old_rec.next() {
+                        None => {
+                            return Err(Error::InsertError(
+                                "failed to retrieve old key".to_string(),
+                            ));
+                        }
+                        Some(old_kv) => {
+                            let res = self.tree_delete(old_kv.0)?;
+                            if res.deleted {
+                                self.key_range.capture_and_listen();
+                            }
+
+                            let res = self.tree_set(k, v, SetFlag::INSERT)?;
+                            debug!("added secondary key UPSERT/UPDATE");
                             self.key_range.capture_and_listen();
+
+                            if !res.added {
+                                return Err(Error::InsertError(
+                                    "couldnt insert record".to_string(),
+                                ));
+                            }
+
+                            modified += 1;
                         }
-
-                        let res = self.tree_set(k, v, SetFlag::INSERT)?;
-                        debug!("added secondary key UPSERT/UPDATE");
-                        self.key_range.capture_and_listen();
-
-                        if !res.added {
-                            return Err(Error::InsertError("couldnt insert record".to_string()));
-                        }
-
-                        modified += 1;
-                    } else {
-                        return Err(Error::InsertError("failed to retrieve old key".to_string()));
                     }
+                    // if let Some(old_kv) = old_rec.next() {
+                    //     let res = self.tree_delete(old_kv.0)?;
+                    //     if res.deleted {
+                    //         self.key_range.capture_and_listen();
+                    //     }
+
+                    //     let res = self.tree_set(k, v, SetFlag::INSERT)?;
+                    //     debug!("added secondary key UPSERT/UPDATE");
+                    //     self.key_range.capture_and_listen();
+
+                    //     if !res.added {
+                    //         return Err(Error::InsertError("couldnt insert record".to_string()));
+                    //     }
+
+                    //     modified += 1;
+                    // } else {
+                    //     return Err(Error::InsertError("failed to retrieve old key".to_string()));
+                    // }
                 }
             }
             // INSERT only
@@ -370,7 +395,9 @@ impl TX {
                     // inserting secondary keys
                     let res = self.tree_set(k, v, SetFlag::INSERT)?;
                     self.key_range.capture_and_listen();
+
                     debug!("added secondary key INSERT");
+
                     if !res.added {
                         return Err(Error::InsertError("couldnt insert record".to_string()));
                     }
@@ -380,7 +407,6 @@ impl TX {
             }
             // UPDATE on existing key/value
             Ok(res) if !res.updated && !res.added => return Ok(modified),
-            // Key couldnt be inserted/updated
             Err(e) => {
                 error!("couldnt insert record");
                 return Err(Error::InsertError("couldnt insert record".to_string()));

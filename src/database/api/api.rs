@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use crate::database::api::insert::exec_insert;
 use crate::database::api::response::DBResponse;
-use crate::database::api::select::exec_select;
-use crate::database::api::update::exec_update;
+use crate::database::api::statements::*;
 use crate::database::errors::{ExecError, Result};
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::transactions::kvdb::*;
@@ -35,29 +33,42 @@ impl Database {
 }
 
 impl Database {
-    pub fn execute(&self, statement: Statement) -> Result<DBResponse> {
-        // TODO: set up worker
-        let mut tx = if let Statement::Select(_) = &statement {
-            self.new_tx(TXKind::Read)
-        } else {
-            self.new_tx(TXKind::Write)
-        };
+    pub fn execute(&self, statements: impl Iterator<Item = Statement>) -> Result<Vec<DBResponse>> {
+        let mut results = vec![];
 
-        let res = match statement {
-            Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
-            Statement::Insert(insert_statement) => exec_insert(&mut tx, insert_statement),
-            Statement::Update(update_statement) => exec_update(&mut tx, update_statement),
-            Statement::Delete(delete_statement) => todo!(),
-            Statement::Create(create_statement) => todo!(),
-            Statement::Drop(drop_statement) => todo!(),
-        };
+        for statement in statements {
+            // TODO: set up worker
+            let mut tx = if let Statement::Select(_) = &statement {
+                self.new_tx(TXKind::Read)
+            } else {
+                self.new_tx(TXKind::Write)
+            };
 
-        if res.is_err() {
-            self.abort_tx(tx)?;
-            return res;
+            let res = match statement {
+                Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
+                Statement::Insert(insert_statement) => exec_insert(&mut tx, insert_statement),
+                Statement::Update(update_statement) => exec_update(&mut tx, update_statement),
+                Statement::Delete(delete_statement) => todo!(),
+                Statement::Create(create_statement) => todo!(),
+                Statement::Drop(drop_statement) => todo!(),
+            };
+
+            match res {
+                Ok(r) => {
+                    let com_res = self.commit_tx(tx)?;
+                    results.push(r);
+                }
+                Err(e) => {
+                    self.abort_tx(tx)?;
+                    return Err(e.into());
+                }
+            }
         }
 
-        let com_res = self.commit_tx(tx)?;
-        res
+        if results.is_empty() {
+            return Err(ExecError::ExecutionError("no statements provided").into());
+        }
+
+        Ok(results)
     }
 }

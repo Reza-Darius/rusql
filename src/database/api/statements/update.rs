@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     database::{
-        api::{response::DBResponse, select::*},
+        api::{
+            response::DBResponse,
+            statements::{helper::filter_where, select::*},
+        },
         btree::SetFlag,
         errors::*,
         tables::{
@@ -14,7 +17,7 @@ use crate::{
     interpreter::{StatementSet, UpdateStatement},
 };
 
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 #[instrument(skip_all, err)]
 pub fn exec_update(tx: &mut TX, stmt: UpdateStatement) -> Result<DBResponse> {
@@ -73,31 +76,7 @@ fn update_where(
         .as_ref()
         .ok_or_else(|| ExecError::ExecutionError("select_where() called without WHERE clause"))?;
 
-    // mapping column indices to WHERE clauses
-    let where_col_map = validate_where_clause(table, &indices[..])?;
-
-    // do we have an index for the WHERE columns?
-    if let Some((table_idx, stmt_idx)) = find_index(table, &where_col_map) {
-        debug!(?table_idx, ?stmt_idx, "index for WHERE clause");
-
-        let scan = scan_db(table, table_idx, stmt_idx, &tx.tree)?;
-
-        // filter results against non-indexed WHERE clauses
-        let records: Vec<_> = scan
-            .filter_map(|(k, v)| Record::decode_with_index(k, v, table_idx, table).ok()) // reorder into primary row layout
-            .filter(|rec| filter_record(rec, &where_col_map))
-            .collect();
-
-        return write_records(tx, table, records, stmt_col_map);
-    }
-    // query the database without index
-    let scan = tx.full_table_scan(table)?;
-
-    // filter results against WHERE clauses
-    let records: Vec<_> = scan
-        .map(Record::from_kv)
-        .filter(|rec| filter_record(rec, &where_col_map))
-        .collect();
+    let records: Vec<_> = filter_where(tx, table, indices)?.collect();
 
     return write_records(tx, table, records, stmt_col_map);
 }
@@ -115,6 +94,7 @@ fn write_records(
     col_map: &HashMap<usize, &StatementSet>,
 ) -> Result<u32> {
     if !check_unique(table, records.as_slice(), col_map) {
+        warn!("PKEY uniqueness violation");
         return Err(
             ExecError::ExecutionError("failed to update: PKEY uniqueness violation").into(),
         );
@@ -234,15 +214,15 @@ mod execute_update {
         let db = test_data_multiple_index1(path)?;
 
         let query = r#"UPDATE mytable SET job = "manager" WHERE name = "Alice";"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 3);
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
+        assert_eq!(res[0].modified, 3);
 
         let query = r#"SELECT * FROM mytable WHERE name = "Alice";"#;
-        let mut stmt = Parser::parse(query)?;
+        let stmt = Parser::parse(query)?;
 
-        let res = db.execute(stmt.remove(0))?;
-        let rows = res.select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(stmt)?;
+        let rows = res[0].select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(&rows[0][0], "1");
@@ -252,15 +232,15 @@ mod execute_update {
 
         // update all columns
         let query = r#"UPDATE mytable SET job = "manager";"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 12);
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
+        assert_eq!(res[0].modified, 12);
 
         let query = r#"SELECT * FROM mytable;"#;
-        let mut stmt = Parser::parse(query)?;
+        let stmt = Parser::parse(query)?;
 
-        let res = db.execute(stmt.remove(0))?;
-        let rows = res.select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(stmt)?;
+        let rows = res[0].select_result.as_ref().unwrap().get_rows();
 
         assert_eq!(rows.len(), 5);
         assert_eq!(&rows[0][3], "manager");
@@ -276,7 +256,48 @@ mod execute_update {
     #[test]
     fn update_exec_negative() -> Result<()> {
         let path = "test-files/upadate_exec_neg.rdb";
-        let db = test_data_multiple_index1(path);
+        let db = test_data_multiple_index1(path)?;
+
+        // non existant table
+        let query = r#"UPDATE non_existant_table SET job = "manager" WHERE name = "Alice";"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
+
+        // non existant column
+        let query = r#"UPDATE mytable SET doesnt_exist = "manager" WHERE name = "Alice";"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
+
+        // wrong data type for SET clause
+        let query = r#"UPDATE mytable SET job = 9999 WHERE name = "Alice";"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
+
+        // wrong data type for WHERE clause
+        let query = r#"UPDATE mytable SET job = "manager" WHERE name = 9999;"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
+
+        // duplicate columns in SET clause
+        let query = r#"UPDATE mytable SET job = "manager", job = "manager" WHERE name = "Alice";"#;
+        let res = Parser::parse(query);
+        assert!(res.is_err());
+
+        // trying to update every primary key
+        let query = r#"UPDATE mytable SET id = 9999;"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
+
+        // trying to update every primary key with WHERE clause
+        let query = r#"UPDATE mytable SET id = 9999 WHERE name >= "Alice";"#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
+        assert!(res.is_err());
 
         cleanup_file(path);
         Ok(())

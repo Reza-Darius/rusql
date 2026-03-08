@@ -106,30 +106,22 @@ mod execute_insert {
         let path = "test-files/insert_exec_positive1.rdb";
         let db = test_db_single_index(path)?;
 
-        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
-        let mut stmt = Parser::parse(query)?;
+        let query = r#"
+            INSERT INTO mytable (name, age, id) VALUES "Alice", 10 + 10, 1;
+            INSERT INTO mytable (name, age, id) VALUES "Bob", 15, 2;
+            INSERT INTO mytable (name, age, id) VALUES "Char" + "lie", 25, 7 - 4;
+            SELECT * FROM mytable;
+        "#;
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
 
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 1);
+        assert_eq!(res.len(), 4);
 
-        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Bob", 15, 2;"#;
-        let mut stmt = Parser::parse(query)?;
+        assert_eq!(res[0].modified, 1);
+        assert_eq!(res[1].modified, 1);
+        assert_eq!(res[2].modified, 1);
 
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 1);
-
-        let query = r#"INSERT INTO mytable (name, age, id) VALUES "Char" + "lie", 25, 7 - 4;"#;
-        let mut stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 1);
-
-        let query = r#"SELECT * FROM mytable;"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
-        assert_eq!(res.len(), 3);
-
-        let rows = res.get_rows();
+        let rows = res[3].get_rows().unwrap();
 
         assert_eq!(&rows[0][0], "Alice");
         assert_eq!(&rows[0][1], "20");
@@ -143,8 +135,6 @@ mod execute_insert {
         assert_eq!(&rows[2][1], "25");
         assert_eq!(&rows[2][2], "3");
 
-        println!("{query}\n{res}");
-
         cleanup_file(path);
         Ok(())
     }
@@ -156,14 +146,14 @@ mod execute_insert {
 
         // invalid table
         let query = r#"INSERT INTO table_doesnt_exist (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0));
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
         assert!(res.is_err());
 
         // wrong data type
         let query = r#"INSERT INTO mytable (name, age, id) VALUES "Alice", "20", 1;"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0));
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt);
         assert!(res.is_err());
 
         // duplicate column names
@@ -191,32 +181,33 @@ mod execute_insert {
         let db = test_db_multi_index(path)?;
 
         let query = r#"INSERT INTO mytable (name, age, id) VALUES "Alice", 10 + 10, 1;"#;
-        let mut stmt = Parser::parse(query)?;
+        let stmt = Parser::parse(query)?;
 
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 2);
+        let res = db.execute(stmt)?;
+        assert_eq!(res[0].modified, 2);
 
         let query = r#"INSERT INTO mytable (name, age, id) VALUES "Bob", 15, 2;"#;
-        let mut stmt = Parser::parse(query)?;
+        let stmt = Parser::parse(query)?;
 
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 2);
+        let res = db.execute(stmt)?;
+        assert_eq!(res[0].modified, 2);
 
         let query = r#"INSERT INTO mytable (name, age, id) VALUES "Char" + "lie", 25, 7 - 4;"#;
-        let mut stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt.remove(0))?;
-        assert_eq!(res.modified, 2);
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
+        assert_eq!(res[0].modified, 2);
 
         let query = r#"SELECT * FROM mytable;"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
-        assert_eq!(res.len(), 3);
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
+        let rows = res[0].get_rows().unwrap();
+        assert_eq!(rows.len(), 3);
 
         let query = r#"SELECT age FROM mytable;"#;
-        let mut stmt = Parser::parse(query)?;
-        let res = db.execute(stmt.remove(0))?.select_result.unwrap();
-        assert_eq!(res.len(), 3);
+        let stmt = Parser::parse(query)?;
+        let res = db.execute(stmt)?;
+        let rows = res[0].get_rows().unwrap();
+        assert_eq!(rows.len(), 3);
 
         cleanup_file(path);
         Ok(())

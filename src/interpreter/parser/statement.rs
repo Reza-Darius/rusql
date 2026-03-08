@@ -279,8 +279,18 @@ impl UpdateStatement {
     fn validate(&self) -> Result<()> {
         is_valid_identifier(&self.table_name)?;
 
+        let mut u_set = HashSet::with_capacity(self.set.len());
+
         for set in self.set.iter() {
             set.is_valid()?;
+
+            // checking for duplicates
+            if !u_set.insert(set.column.as_str()) {
+                return Err(ParseError::ValidationError(
+                    "duplicate columns in SET clause are not permitted",
+                )
+                .into());
+            }
         }
 
         if let Some(indices) = &self.index {
@@ -412,10 +422,10 @@ pub fn parse_update(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct DeleteStatement {
-    table_name: String,
-    index: Option<Vec<StatementIndex>>,
-    order: Option<StatementOrder>,
-    limit: Option<StatementLimit>,
+    pub table_name: String,
+    pub index: Option<Vec<StatementIndex>>,
+    pub order: Option<StatementOrder>,
+    pub limit: Option<StatementLimit>,
 }
 
 impl DeleteStatement {
@@ -800,7 +810,6 @@ mod parser_test {
             SELECT * FROM mytable ORDER col1;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -826,7 +835,6 @@ mod parser_test {
     fn insert_parse1() {
         let input = "INSERT INTO mytable (col1, col2) VALUES (2*2), \"Hello\";";
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -856,7 +864,6 @@ mod parser_test {
             UPDATE mytable SET col = "hello" WHERE col <= "hi" ORDER col LIMIT 2;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -867,7 +874,6 @@ mod parser_test {
             DELETE FROM mytable;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -877,7 +883,6 @@ mod parser_test {
             CREATE TABLE mytable (col1 = INT, col2 = STR, col3 = STR);
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -887,7 +892,6 @@ mod parser_test {
             CREATE INDEX newindex ON mytable FOR col1;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -897,7 +901,6 @@ mod parser_test {
             DROP TABLE mytable;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -907,7 +910,6 @@ mod parser_test {
             DROP INDEX myidx FROM mytable;
         "#;
         let res = Parser::parse(input);
-        println!("{:?}", res);
         assert!(res.is_ok());
     }
 
@@ -925,10 +927,7 @@ mod parser_test {
            DROP TABLE mytable;
            DROP INDEX myidx FROM mytable;
            "#;
-        let res = Parser::parse(input);
-        assert_eq!(res.as_ref().unwrap().len(), 8);
-        for stmt in res.unwrap() {
-            println!("{stmt:?}");
-        }
+        let res = Parser::parse(input).unwrap();
+        assert_eq!(res.count(), 8);
     }
 }
