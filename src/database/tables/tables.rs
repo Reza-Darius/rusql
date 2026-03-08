@@ -1,10 +1,13 @@
 use std::{marker::PhantomData, ops::Deref};
 
-use crate::database::{
-    errors::{Result, TableError},
-    tables::Value,
-    transactions::tx::TX,
-    types::{BTREE_MAX_VAL_SIZE, DataCellRef},
+use crate::{
+    database::{
+        errors::{Result, TableError},
+        tables::Value,
+        transactions::tx::TX,
+        types::{BTREE_MAX_VAL_SIZE, DataCellRef},
+    },
+    interpreter::DataType,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -176,7 +179,7 @@ impl TableBuilder {
     }
 
     /// parsing is WIP
-    pub fn build(self, pager: &mut TX) -> Result<Table> {
+    pub fn build(self, tx: &mut TX) -> Result<Table> {
         let name = match self.name {
             Some(n) => {
                 if n.is_empty() {
@@ -197,7 +200,7 @@ impl TableBuilder {
 
         let id = match self.id {
             Some(id) => id,
-            None => pager.new_tid()?,
+            None => tx.new_tid()?,
         };
 
         let cols = self.cols;
@@ -325,7 +328,7 @@ impl Table {
     }
 
     /// returns the first index that contains the columns
-    pub fn get_index<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&TableIndex> {
+    pub fn get_index_for_columns<T: AsRef<str>>(&self, col_names: &[T]) -> Option<&TableIndex> {
         let col_indices: Vec<_> = col_names
             .iter()
             .filter_map(|col| self.get_col_idx(col.as_ref()))
@@ -474,6 +477,15 @@ impl TypeCol {
             1 => Some(TypeCol::Bytes),
             2 => Some(TypeCol::Integer),
             _ => None,
+        }
+    }
+}
+
+impl From<DataType> for TypeCol {
+    fn from(value: DataType) -> Self {
+        match value {
+            DataType::Int => TypeCol::Integer,
+            DataType::Str => TypeCol::Bytes,
         }
     }
 }

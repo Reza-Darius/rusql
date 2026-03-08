@@ -15,23 +15,28 @@ use crate::{
     interpreter::ValueObject,
 };
 
+// Table Config
+pub const MAX_COLUMNS: u16 = 100;
+
+// Tree Config
 pub const BTREE_MAX_KEY_SIZE: usize = 1000;
 pub const BTREE_MAX_VAL_SIZE: usize = 3000;
-/// determines when nodes should be merged, higher number = less merges
+// determines when nodes should be merged, higher number = less merges
 pub const MERGE_FACTOR: usize = PAGE_SIZE / 4;
 pub const RESERVED_PAGES: u64 = 2;
 
-/// size of one page on disk
+// size of one page on disk
 pub const PAGE_SIZE: usize = 4096; // 4096 bytes
 pub const TRUNC_THRESHOLD: usize = 1000; // amount of free list entries which trigger a truncation call
 pub const LOAD_FACTOR_THRESHOLD: f64 = 0.5; // percentage value
 
-/// maximum size for nodes inside memory
+// maximum size for nodes inside memory
 pub const NODE_SIZE: usize = PAGE_SIZE * 2;
 pub const PTR_SIZE: usize = 8;
 pub const VER_SIZE: usize = std::mem::size_of::<u64>();
 pub const FREE_PAGE: u64 = 0; // sentinel value for pages that are free to be reused, unreachable from any committed root
 
+// buffer sizes
 pub const LRU_BUFFER_SIZE: usize = 10;
 pub const HISTORY_BUFFER_SIZE: usize = 10;
 pub const TBUFFER_CAP: u16 = 10;

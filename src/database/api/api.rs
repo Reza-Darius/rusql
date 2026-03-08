@@ -48,8 +48,8 @@ impl Database {
                 Statement::Select(select_statement) => exec_select(&mut tx, select_statement),
                 Statement::Insert(insert_statement) => exec_insert(&mut tx, insert_statement),
                 Statement::Update(update_statement) => exec_update(&mut tx, update_statement),
-                Statement::Delete(delete_statement) => todo!(),
-                Statement::Create(create_statement) => todo!(),
+                Statement::Delete(delete_statement) => exec_delete(&mut tx, delete_statement),
+                Statement::Create(create_statement) => exec_create(&mut tx, create_statement),
                 Statement::Drop(drop_statement) => todo!(),
             };
 

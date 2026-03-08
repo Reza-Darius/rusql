@@ -531,8 +531,8 @@ pub enum CreateStatement {
 
 #[derive(Debug)]
 pub struct CreateTableStatement {
-    table_name: String,
-    columns: Vec<CreateColumn>,
+    pub table_name: String,
+    pub columns: Vec<CreateColumn>,
 }
 
 impl CreateTableStatement {
@@ -641,9 +641,9 @@ fn parse_create_table(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct CreateIndexStatement {
-    table_name: String,
-    idx_name: String,
-    col_name: String,
+    pub table_name: String,
+    pub idx_name: String,
+    pub col_name: String,
 }
 
 impl CreateIndexStatement {

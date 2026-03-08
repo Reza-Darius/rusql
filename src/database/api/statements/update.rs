@@ -78,16 +78,16 @@ fn update_where(
 
     let records: Vec<_> = filter_where(tx, table, indices)?.collect();
 
-    return write_records(tx, table, records, stmt_col_map);
+    return update_records(tx, table, records, stmt_col_map);
 }
 
 fn update_all(tx: &mut TX, table: &Table, col_map: &HashMap<usize, &StatementSet>) -> Result<u32> {
     let records = tx.full_table_scan(table)?.collect_records();
 
-    write_records(tx, table, records, col_map)
+    update_records(tx, table, records, col_map)
 }
 
-fn write_records(
+fn update_records(
     tx: &mut TX,
     table: &Table,
     records: Vec<Record>,
@@ -210,7 +210,7 @@ mod execute_update {
 
     #[test]
     fn update_exec_positive() -> Result<()> {
-        let path = "test-files/upadate_exec_pos.rdb";
+        let path = "test-files/update_exec_pos.rdb";
         let db = test_data_multiple_index1(path)?;
 
         let query = r#"UPDATE mytable SET job = "manager" WHERE name = "Alice";"#;
@@ -255,7 +255,7 @@ mod execute_update {
 
     #[test]
     fn update_exec_negative() -> Result<()> {
-        let path = "test-files/upadate_exec_neg.rdb";
+        let path = "test-files/update_exec_neg.rdb";
         let db = test_data_multiple_index1(path)?;
 
         // non existant table

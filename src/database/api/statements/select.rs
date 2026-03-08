@@ -85,7 +85,7 @@ pub(crate) fn select_columns(
             let col_indices: Vec<usize> = validate_select_columns(columns.as_slice(), table)?;
 
             // do we have an index?
-            if let Some(index) = table.get_index(columns.as_slice()) {
+            if let Some(index) = table.get_index_for_columns(columns.as_slice()) {
                 debug!(columns = ?columns, index = ?index, "index found for SELECT columns");
 
                 let key = Query::by_tid_prefix(table, index.prefix);

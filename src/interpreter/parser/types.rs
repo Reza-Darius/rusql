@@ -164,7 +164,7 @@ impl CreateColumn {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum DataType {
     Int,
     Str,

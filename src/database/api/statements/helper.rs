@@ -13,6 +13,9 @@ use crate::database::tables::{Query, Record};
 use crate::database::transactions::tx::*;
 use crate::interpreter::*;
 
+/// returns all records matching WHERE clauses
+///
+/// attempts to use the most appropiate index
 pub(crate) fn filter_where(
     tx: &mut TX,
     table: &Table,
@@ -56,7 +59,9 @@ fn find_index<'a, 'b>(
 ) -> Option<(&'a TableIndex, &'b StatementIndex)> {
     let mut search_index = None;
     for (k, v) in col_map.iter() {
-        if let Some(table_index) = table.get_index(slice::from_ref(&table.cols[*k].title)) {
+        if let Some(table_index) =
+            table.get_index_for_columns(slice::from_ref(&table.cols[*k].title))
+        {
             assert_eq!(
                 table_index.columns.len(),
                 1,
