@@ -719,7 +719,7 @@ pub fn parse_drop(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct DropTableStatement {
-    table_name: String,
+    pub table_name: String,
 }
 
 impl DropTableStatement {
@@ -756,8 +756,8 @@ fn parse_drop_table(parser: &mut Parser) -> Result<Statement> {
 
 #[derive(Debug)]
 pub struct DropIndexStatement {
-    idx_name: String,
-    table_name: String,
+    pub idx_name: String,
+    pub table_name: String,
 }
 
 impl DropIndexStatement {

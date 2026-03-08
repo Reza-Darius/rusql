@@ -215,7 +215,7 @@ impl TX {
     ///
     /// drops table from the database
     #[instrument(name = "drop table", skip_all)]
-    pub fn drop_table(&mut self, name: &str) -> Result<()> {
+    pub fn drop_table(&mut self, name: &str) -> Result<u32> {
         info!(name, "dropping table");
 
         if self.kind == TXKind::Read {
@@ -231,8 +231,9 @@ impl TX {
 
         // delete keys
         let recs = self.full_table_scan(&table)?.collect_records();
+        let mut modified = 0;
         for rec in recs.into_iter() {
-            self.delete_rec(rec, &table)?;
+            modified += self.delete_rec(rec, &table)?;
         }
 
         self.key_range.listen();
@@ -252,7 +253,7 @@ impl TX {
         // evict from buffer
         self.store.evict_table(&table.name);
 
-        Ok(())
+        Ok(modified + 1)
     }
 
     /// scans all primary keys in a table
@@ -526,7 +527,7 @@ impl TX {
         }
 
         assert_eq!(nrecs, modified as usize);
-        Ok(modified)
+        Ok(modified + 1)
     }
 
     /// deletes an index for a table and all associated keys. Updates the table as well.
@@ -568,7 +569,7 @@ impl TX {
             self.insert_table(table)?;
         }
 
-        Ok(modified)
+        Ok(modified + 1)
     }
 }
 

@@ -50,7 +50,7 @@ impl Database {
                 Statement::Update(update_statement) => exec_update(&mut tx, update_statement),
                 Statement::Delete(delete_statement) => exec_delete(&mut tx, delete_statement),
                 Statement::Create(create_statement) => exec_create(&mut tx, create_statement),
-                Statement::Drop(drop_statement) => todo!(),
+                Statement::Drop(drop_statement) => exec_drop(&mut tx, drop_statement),
             };
 
             match res {

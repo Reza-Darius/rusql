@@ -228,10 +228,10 @@ pub(crate) mod execute_select {
         }
 
         let modified = tx.create_index("job", "job", &mut table)?;
-        assert_eq!(modified as usize, num_entries);
+        assert_eq!(modified as usize, num_entries + 1);
 
         let modified = tx.create_index("age", "age", &mut table)?;
-        assert_eq!(modified as usize, num_entries);
+        assert_eq!(modified as usize, num_entries + 1);
 
         db.db.commit(tx)?;
         Ok(db)
