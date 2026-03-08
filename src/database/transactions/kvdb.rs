@@ -36,7 +36,7 @@ impl Transaction for StorageEngine {
 }
 
 impl StorageEngine {
-    pub fn new(path: &'static str) -> Self {
+    pub fn new(path: &str) -> Self {
         StorageEngine {
             t_def: TDefTable::new(),
             t_meta: MetaTable::new(),

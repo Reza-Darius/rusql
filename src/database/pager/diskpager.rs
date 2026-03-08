@@ -7,7 +7,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use rustix::fs::{fstat, fsync, ftruncate};
 use tracing::{debug, error, instrument, warn};
 
-use crate::create_file_sync;
+use crate::database::create_file_sync;
 use crate::database::{
     btree::TreeNode,
     errors::{Error, PagerError},
@@ -51,7 +51,6 @@ impl std::fmt::Display for NodeFlag {
 }
 
 pub(crate) struct DiskPager {
-    path: &'static str,
     pub database: OwnedFd,
     pub mmap: RwLock<Mmap>,
     pub buf_shared: RwLock<SharedBuffer>, // shared read only buffer
@@ -144,9 +143,8 @@ impl GCCallbacks for DiskPager {
 
 impl DiskPager {
     /// initializes pager
-    pub fn open(path: &'static str) -> Result<Arc<Self>, Error> {
+    pub fn open(path: &str) -> Result<Arc<Self>, Error> {
         let mut pager = Arc::new_cyclic(|w| DiskPager {
-            path,
             database: create_file_sync(path).expect("file open error"),
             failed: false.into(),
             buf_shared: RwLock::new(SharedBuffer::new()),

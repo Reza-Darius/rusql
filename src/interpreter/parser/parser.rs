@@ -8,7 +8,7 @@ use crate::interpreter::parser::types::*;
 use crate::interpreter::{lexer::*, tokens::*};
 
 pub struct Parser<'a> {
-    pub lexer: Lexer<'a>,
+    pub(crate) lexer: Lexer<'a>,
 }
 
 impl<'a> Parser<'a> {

@@ -13,7 +13,7 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn open(path: &'static str) -> Self {
+    pub fn open(path: &str) -> Self {
         Database {
             db: Arc::new(StorageEngine::new(path)),
         }

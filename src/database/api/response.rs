@@ -23,9 +23,10 @@ impl DBResponse {
 
 impl fmt::Display for DBResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.select_result {
-            Some(res) => write!(f, "{res}"),
-            None => write!(f, "No Result"),
+        if let Some(select_result) = &self.select_result {
+            write!(f, "{select_result}")
+        } else {
+            write!(f, "keys modified: {}", self.modified)
         }
     }
 }

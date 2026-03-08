@@ -2,8 +2,5 @@
 mod database;
 mod interpreter;
 
-// // can import
-// use database::create_file_sync;
-
-// export to user of crate
-pub use database::create_file_sync;
+pub use database::api::Database;
+pub use interpreter::Parser;
