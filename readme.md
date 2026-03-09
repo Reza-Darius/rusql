@@ -103,7 +103,7 @@ use the special `*` wildcard operator to select every column!
 
 `INSERT INTO table (column, ...) VALUES expression, ...;`
 
-strings are denoted with double quotes like `"Alice"`
+string values are denoted with double quotes like `"Alice"`
 
 RUSQL rejects mismatching data types
 
