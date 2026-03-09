@@ -169,6 +169,18 @@ pub enum DataCell {
     Int(i64),
 }
 
+impl From<i64> for DataCell {
+    fn from(value: i64) -> Self {
+        DataCell::Int(value)
+    }
+}
+
+impl From<&str> for DataCell {
+    fn from(value: &str) -> Self {
+        DataCell::Str(value.to_string())
+    }
+}
+
 impl PartialEq<&str> for DataCell {
     fn eq(&self, other: &&str) -> bool {
         match self {
@@ -206,14 +218,14 @@ impl PartialEq<i64> for &DataCell {
 }
 
 impl DataCell {
-    pub fn as_ref(&self) -> DataCellRef<'_> {
+    pub(crate) fn as_ref(&self) -> DataCellRef<'_> {
         match self {
             DataCell::Str(s) => DataCellRef::Str(s.as_str()),
             DataCell::Int(i) => DataCellRef::Int(*i),
         }
     }
 
-    pub fn char_len(&self) -> usize {
+    pub(crate) fn char_len(&self) -> usize {
         match self {
             DataCell::Str(s) => s.len(),
             DataCell::Int(i) => {

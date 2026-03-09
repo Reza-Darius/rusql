@@ -14,6 +14,7 @@ pub struct Database {
 }
 
 impl Database {
+    /// opens a new database at path, panics if this fails for any reason
     pub fn open(path: &str) -> Self {
         Database {
             db: Arc::new(StorageEngine::new(path)),
@@ -71,17 +72,6 @@ impl Database {
     }
 }
 
-pub struct Statement;
-
-impl Statement {
-    pub fn new(query: &str) -> Query {
-        Query {
-            statement: query.to_string(),
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct Query {
     statement: String,
@@ -89,7 +79,14 @@ pub struct Query {
 }
 
 impl Query {
-    pub fn bind(&mut self, data: impl InputData) -> &mut Self {
+    pub fn new(query: &str) -> Self {
+        Query {
+            statement: query.to_string(),
+            ..Default::default()
+        }
+    }
+
+    pub fn bind(mut self, data: impl InputData) -> Self {
         self.data.push(data.into_cell());
         self
     }
