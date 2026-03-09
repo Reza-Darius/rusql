@@ -1,8 +1,8 @@
 # RuSQL
 
-A complete database written entirely from scratch in Rust!
+## A complete, minmal dependency database 
 
-## Highlights
+Key Highlights:
 - Persistent B+Tree based key-value storage
 - Copy-on-write architecture
 - Memory-mapped file I/O 
