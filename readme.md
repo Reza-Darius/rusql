@@ -89,7 +89,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 RUSQL follows a syntax cloesly resembling SQLite and should be familiar to most user.
 
 Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)` in legitimate syntax.
-brackets denote optional parameter.
+
+Brackets denote optional parameter.
 
 ---
 #### Select
@@ -101,6 +102,8 @@ use the special `*` wildcard operator to select every column!
 #### Insert
 
 `INSERT INTO table (column, ...) VALUES expression, ...;`
+
+strings are denoted with double quotes like `"Alice"`
 
 RUSQL rejects mismatching data types
 
@@ -123,7 +126,7 @@ note: omitting a WHERE clause deletes every entry from the table
 
 supported data types:
 ```
-INT = 64 bit integer
+INT = 64 bit signed integer
 STR = UTF8 encoded string
 ```
 
