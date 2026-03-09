@@ -90,7 +90,7 @@ RUSQL follows a syntax cloesly resembling SQLite and should be familiar to most 
 
 Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)` in legitimate syntax.
 
-Brackets denote optional parameter.
+Bracketed keywords denote optional clauses
 
 ---
 #### Select
@@ -112,13 +112,15 @@ RUSQL rejects mismatching data types
 
 `UPDATE table SET column = expression, ... (WHERE) column operator expression, ... (LIMIT) expression;`
 
-note: omitting a WHERE clauses sets every column to the given value
+note: omitting both WHERE and LIMIT clauses sets every column to the given value!
+
+RUSQL will reject attempts to overwrite primary key columns in ways that would leave them not unique.
 
 #### Delete
 
 `DELETE FROM table (WHERE) column operator expression, ... (LIMIT) expression;`
 
-note: omitting a WHERE clause deletes every entry from the table
+note: omitting both WHERE and LIMIT clauses deletes every entry from the table!
 
 #### Create
 
@@ -132,7 +134,7 @@ STR = UTF8 encoded string
 
 `CREATE INDEX index_name ON table FOR column;`
 
-create a secondary index for faster lookups 
+create a secondary index for faster lookups
 
 
 #### Drop
