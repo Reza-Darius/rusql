@@ -8,7 +8,7 @@ use crate::interpreter::parser::types::*;
 use crate::interpreter::tokens::*;
 
 #[derive(Debug)]
-pub enum Statement {
+pub enum ParsedStatement {
     Select(SelectStatement),
     Insert(InsertStatement),
     Update(UpdateStatement),
@@ -103,7 +103,7 @@ impl StatementInterface for SelectStatement {
 }
 
 #[instrument(skip_all)]
-pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_select(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing SELECT statement!");
 
     parser.next();
@@ -127,7 +127,7 @@ pub fn parse_select(parser: &mut Parser) -> Result<Statement> {
         match &parser.lexer.current {
             Token::Seperator(Seperator::Semicolon) => {
                 statement.validate()?;
-                return Ok(Statement::Select(statement));
+                return Ok(ParsedStatement::Select(statement));
             }
             Token::Keyword(Keyword::Where) => {
                 debug!("parsing WHERE clause");
@@ -214,7 +214,7 @@ impl InsertStatement {
 }
 
 #[instrument(skip_all)]
-pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_insert(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing insert statement");
 
     parser.next();
@@ -253,7 +253,7 @@ pub fn parse_insert(parser: &mut Parser) -> Result<Statement> {
             }
             Token::Seperator(Seperator::Semicolon) => {
                 statement.validate()?;
-                return Ok(Statement::Insert(statement));
+                return Ok(ParsedStatement::Insert(statement));
             }
             t => {
                 return Err(ParseError::InvalidToken {
@@ -313,7 +313,7 @@ impl UpdateStatement {
 
 // UPDATE table_name SET col1 = expr, col2 = expr WHERE col1 > expr LIMIT 5
 #[instrument(skip_all)]
-pub fn parse_update(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_update(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing update statement");
 
     parser.next();
@@ -373,7 +373,7 @@ pub fn parse_update(parser: &mut Parser) -> Result<Statement> {
         match &parser.lexer.current {
             Token::Seperator(Seperator::Semicolon) => {
                 statement.validate()?;
-                return Ok(Statement::Update(statement));
+                return Ok(ParsedStatement::Update(statement));
             }
             Token::Keyword(Keyword::Where) => {
                 debug!("parsing WHERE clause");
@@ -449,7 +449,7 @@ impl DeleteStatement {
     }
 }
 
-pub fn parse_delete(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_delete(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing delete statement");
 
     parser.next();
@@ -470,7 +470,7 @@ pub fn parse_delete(parser: &mut Parser) -> Result<Statement> {
         match &parser.lexer.current {
             Token::Seperator(Seperator::Semicolon) => {
                 statement.validate()?;
-                return Ok(Statement::Delete(statement));
+                return Ok(ParsedStatement::Delete(statement));
             }
             Token::Keyword(Keyword::Where) => {
                 debug!("parsing WHERE clause");
@@ -565,7 +565,7 @@ impl CreateTableStatement {
 }
 
 #[instrument(skip_all)]
-pub fn parse_create(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_create(parser: &mut Parser) -> Result<ParsedStatement> {
     if let Some(token) = parser.next() {
         debug!("parsing {token:?}");
 
@@ -587,7 +587,7 @@ pub fn parse_create(parser: &mut Parser) -> Result<Statement> {
     }
 }
 
-fn parse_create_table(parser: &mut Parser) -> Result<Statement> {
+fn parse_create_table(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing CREATE TABLE statement");
 
     parser.next();
@@ -612,7 +612,7 @@ fn parse_create_table(parser: &mut Parser) -> Result<Statement> {
                 match &parser.lexer.current {
                     Token::Seperator(Seperator::Semicolon) => {
                         statement.validate()?;
-                        return Ok(Statement::Create(CreateStatement::Table(statement)));
+                        return Ok(ParsedStatement::Create(CreateStatement::Table(statement)));
                     }
                     t => {
                         let err = ParseError::InvalidToken {
@@ -656,7 +656,7 @@ impl CreateIndexStatement {
 }
 
 // CREATE INDEX idx_name ON table_name FOR col_name;
-fn parse_create_index(parser: &mut Parser) -> Result<Statement> {
+fn parse_create_index(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing CREATE INDEX statment");
 
     parser.next();
@@ -676,7 +676,7 @@ fn parse_create_index(parser: &mut Parser) -> Result<Statement> {
             };
             statement.validate()?;
 
-            Ok(Statement::Create(CreateStatement::Index(statement)))
+            Ok(ParsedStatement::Create(CreateStatement::Index(statement)))
         }
         t => {
             let err = ParseError::InvalidToken {
@@ -695,7 +695,7 @@ pub enum DropStatement {
     Index(DropIndexStatement),
 }
 
-pub fn parse_drop(parser: &mut Parser) -> Result<Statement> {
+pub fn parse_drop(parser: &mut Parser) -> Result<ParsedStatement> {
     if let Some(token) = parser.next() {
         debug!("parsing {token:?}");
 
@@ -729,7 +729,7 @@ impl DropTableStatement {
     }
 }
 
-fn parse_drop_table(parser: &mut Parser) -> Result<Statement> {
+fn parse_drop_table(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing DROP TABLE statement");
 
     parser.next();
@@ -741,7 +741,7 @@ fn parse_drop_table(parser: &mut Parser) -> Result<Statement> {
         Token::Seperator(Seperator::Semicolon) => {
             let statement = DropTableStatement { table_name };
             statement.validate()?;
-            Ok(Statement::Drop(DropStatement::Table(statement)))
+            Ok(ParsedStatement::Drop(DropStatement::Table(statement)))
         }
         t => {
             let err = ParseError::InvalidToken {
@@ -768,7 +768,7 @@ impl DropIndexStatement {
     }
 }
 
-fn parse_drop_index(parser: &mut Parser) -> Result<Statement> {
+fn parse_drop_index(parser: &mut Parser) -> Result<ParsedStatement> {
     info!("parsing DROP INDEX statement");
 
     parser.next();
@@ -784,7 +784,7 @@ fn parse_drop_index(parser: &mut Parser) -> Result<Statement> {
                 table_name,
             };
             statement.validate()?;
-            Ok(Statement::Drop(DropStatement::Index(statement)))
+            Ok(ParsedStatement::Drop(DropStatement::Index(statement)))
         }
         t => {
             let err = ParseError::InvalidToken {

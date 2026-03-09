@@ -162,11 +162,47 @@ impl Display for Pointer {
     }
 }
 
-/// simple wrapper for a cell
+/// Cell data used for binding to query statements
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub(crate) enum DataCell {
+pub enum DataCell {
     Str(String),
     Int(i64),
+}
+
+impl PartialEq<&str> for DataCell {
+    fn eq(&self, other: &&str) -> bool {
+        match self {
+            DataCell::Str(s) => s.as_str() == *other,
+            DataCell::Int(_) => false,
+        }
+    }
+}
+
+impl PartialEq<str> for DataCell {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            DataCell::Str(s) => s.as_str() == other,
+            DataCell::Int(_) => false,
+        }
+    }
+}
+
+impl PartialEq<i64> for DataCell {
+    fn eq(&self, other: &i64) -> bool {
+        match self {
+            DataCell::Str(_) => false,
+            DataCell::Int(i) => *i == *other,
+        }
+    }
+}
+
+impl PartialEq<i64> for &DataCell {
+    fn eq(&self, other: &i64) -> bool {
+        match self {
+            DataCell::Str(_) => false,
+            DataCell::Int(i) => *i == *other,
+        }
+    }
 }
 
 impl DataCell {
@@ -174,6 +210,21 @@ impl DataCell {
         match self {
             DataCell::Str(s) => DataCellRef::Str(s.as_str()),
             DataCell::Int(i) => DataCellRef::Int(*i),
+        }
+    }
+
+    pub fn char_len(&self) -> usize {
+        match self {
+            DataCell::Str(s) => s.len(),
+            DataCell::Int(i) => {
+                let mut n = *i;
+                let mut digits = 0;
+                while n > 0 {
+                    n /= 10;
+                    digits += 1;
+                }
+                digits
+            }
         }
     }
 }
@@ -187,7 +238,8 @@ impl std::fmt::Display for DataCell {
     }
 }
 
-pub(crate) trait InputData {
+/// Trait for data types supported by RUSQL
+pub trait InputData {
     fn into_cell(self) -> DataCell;
 }
 
@@ -321,3 +373,24 @@ pub trait IteratorDB: Iterator + Sized {
 }
 
 impl<T: Iterator> IteratorDB for T {}
+
+#[cfg(test)]
+mod types_test {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn cell_len() {
+        let cell = DataCell::Int(1);
+        assert_eq!(cell.char_len(), 1);
+
+        let cell = DataCell::Int(1234);
+        assert_eq!(cell.char_len(), 4);
+
+        let cell = DataCell::Int(111);
+        assert_eq!(cell.char_len(), 3);
+
+        let cell = DataCell::Int(2314052);
+        assert_eq!(cell.char_len(), 7);
+    }
+}

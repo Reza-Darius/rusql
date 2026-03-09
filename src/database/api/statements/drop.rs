@@ -117,49 +117,41 @@ mod execute_drop {
             col2 = STR,
         );"#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 1);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 1);
 
         let query = r#"
             INSERT INTO new_table (col1, col2) VALUES 1, "Alice";
             INSERT INTO new_table (col1, col2) VALUES 2, "Bob";
             INSERT INTO new_table (col1, col2) VALUES 3, "Charlie";
         "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 1);
-        assert_eq!(res[1].modified, 1);
-        assert_eq!(res[2].modified, 1);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 3);
 
         let query = r#"SELECT * FROM new_table;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 3);
 
         let query = r#"SELECT * FROM new_table WHERE col2 = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][0], 1);
         assert_eq!(&rows[0][1], "Alice");
 
         let query = r#"DROP TABLE new_table;"#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 4);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 4);
 
         let query = r#"SELECT * FROM new_table;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);
@@ -174,8 +166,7 @@ mod execute_drop {
 
         // no columns
         let query = r#"DROP TABLE doesnt_exist;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);
@@ -190,15 +181,13 @@ mod execute_drop {
         let query = r#"
                     CREATE INDEX my_index ON mytable FOR name;
                 "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 6);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 6);
 
         let query = r#"SELECT * FROM mytable WHERE name >= "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 5);
 
@@ -206,25 +195,25 @@ mod execute_drop {
                     DROP INDEX my_index FROM mytable;
                 "#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 6);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 6);
 
         let query = r#"
                     DROP INDEX age FROM mytable;
                 "#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 6);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 6);
 
         let query = r#"
                     DROP INDEX job FROM mytable;
                 "#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 6);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 6);
 
         cleanup_file(path);
         Ok(())
@@ -238,15 +227,13 @@ mod execute_drop {
         let query = r#"
                     DROP INDEX doesnt_exist FROM mytable;
                 "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         let query = r#"
                     DROP INDEX job FROM doesnt_exist;
                 "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);

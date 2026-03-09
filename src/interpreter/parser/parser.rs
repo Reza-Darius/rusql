@@ -31,7 +31,7 @@ impl<'a> Parser<'a> {
     }
 
     #[instrument(skip_all)]
-    pub fn parse(input: &'a str) -> Result<impl Iterator<Item = Statement>> {
+    pub fn parse(input: &str) -> Result<impl Iterator<Item = ParsedStatement> + use<>> {
         let mut parser = Parser::new(input);
         let mut statements = vec![];
 

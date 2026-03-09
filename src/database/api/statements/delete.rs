@@ -129,37 +129,31 @@ mod execute_delete {
         let db = test_data_multiple_index1(path)?;
 
         let query = r#"DELETE FROM mytable WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 3);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 3);
 
         let query = r#"SELECT * FROM mytable WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 0);
 
         let query = r#"SELECT * FROM mytable;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
 
         // delete all rows
         let query = r#"DELETE FROM mytable;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 12);
+        let res = db.execute(query.into())?;
+
+        assert_eq!(res.modified(), 12);
 
         let query = r#"SELECT * FROM mytable;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 0);
 
@@ -174,20 +168,17 @@ mod execute_delete {
 
         // non existant table
         let query = r#"DELETE FROM non_existant_table WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // non existant column
         let query = r#"DELETE FROM mytable WHERE doesnt_exist = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // wrong data type for WHERE clause
         let query = r#"DELETE FROM mytable WHERE name = 9999;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);

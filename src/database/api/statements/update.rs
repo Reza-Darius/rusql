@@ -214,33 +214,27 @@ mod execute_update {
         let db = test_data_multiple_index1(path)?;
 
         let query = r#"UPDATE mytable SET job = "manager" WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 3);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.modified(), 3);
 
         let query = r#"SELECT * FROM mytable WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][0], 1);
         assert_eq!(&rows[0][1], "Alice");
-        assert_eq!(&rows[0][2], "20");
+        assert_eq!(&rows[0][2], 20);
         assert_eq!(&rows[0][3], "manager");
 
         // update all columns
         let query = r#"UPDATE mytable SET job = "manager";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 12);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.modified(), 12);
 
         let query = r#"SELECT * FROM mytable;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 5);
         assert_eq!(&rows[0][3], "manager");
@@ -260,26 +254,22 @@ mod execute_update {
 
         // non existant table
         let query = r#"UPDATE non_existant_table SET job = "manager" WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // non existant column
         let query = r#"UPDATE mytable SET doesnt_exist = "manager" WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // wrong data type for SET clause
         let query = r#"UPDATE mytable SET job = 9999 WHERE name = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // wrong data type for WHERE clause
         let query = r#"UPDATE mytable SET job = "manager" WHERE name = 9999;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // duplicate columns in SET clause
@@ -289,14 +279,12 @@ mod execute_update {
 
         // trying to update every primary key
         let query = r#"UPDATE mytable SET id = 9999;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         // trying to update every primary key with WHERE clause
         let query = r#"UPDATE mytable SET id = 9999 WHERE name >= "Alice";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);

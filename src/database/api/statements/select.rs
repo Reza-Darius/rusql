@@ -243,71 +243,63 @@ pub(crate) mod execute_select {
         let db = test_data_single_index1(path)?;
 
         let query = "SELECT * FROM mytable LIMIT 2;";
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
         assert_eq!(rows.len(), 2);
 
         assert_eq!(&rows[0][0], "Alice");
-        assert_eq!(&rows[0][1], "20");
-        assert_eq!(&rows[0][2], "1");
+        assert_eq!(&rows[0][1], 20);
+        assert_eq!(&rows[0][2], 1);
 
         assert_eq!(&rows[1][0], "Bob");
-        assert_eq!(&rows[1][1], "15");
-        assert_eq!(&rows[1][2], "2");
+        assert_eq!(&rows[1][1], 15);
+        assert_eq!(&rows[1][2], 2);
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = "SELECT * FROM mytable WHERE age >= 20;";
-        let stmt = Parser::parse(query)?;
+        let res = db.execute(query.into())?;
 
-        let res = db.execute(stmt)?;
-
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 2);
 
         assert_eq!(&rows[0][0], "Alice");
-        assert_eq!(&rows[0][1], "20");
-        assert_eq!(&rows[0][2], "1");
+        assert_eq!(&rows[0][1], 20);
+        assert_eq!(&rows[0][2], 1);
 
         assert_eq!(&rows[1][0], "Charlie");
-        assert_eq!(&rows[1][1], "25");
-        assert_eq!(&rows[1][2], "3");
+        assert_eq!(&rows[1][1], 25);
+        assert_eq!(&rows[1][2], 3);
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = "SELECT age FROM mytable WHERE age = 20, id = 1;";
-        let stmt = Parser::parse(query)?;
+        let res = db.execute(query.into())?;
 
-        let res = db.execute(stmt)?;
-
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
         assert_eq!(rows.len(), 1);
 
-        assert_eq!(&rows[0][0], "20");
+        assert_eq!(&rows[0][0], 20);
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = "SELECT name, age FROM mytable;";
-        let stmt = Parser::parse(query)?;
+        let res = db.execute(query.into())?;
 
-        let res = db.execute(stmt)?;
-
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
         assert_eq!(rows.len(), 3);
 
         assert_eq!(&rows[0][0], "Alice");
-        assert_eq!(&rows[0][1], "20");
+        assert_eq!(&rows[0][1], 20);
 
         assert_eq!(&rows[1][0], "Bob");
-        assert_eq!(&rows[1][1], "15");
+        assert_eq!(&rows[1][1], 15);
 
         assert_eq!(&rows[2][0], "Charlie");
-        assert_eq!(&rows[2][1], "25");
+        assert_eq!(&rows[2][1], 25);
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         cleanup_file(path);
         Ok(())
@@ -319,95 +311,86 @@ pub(crate) mod execute_select {
         let db = test_data_multiple_index1(path)?;
 
         let query = r#"SELECT * FROM mytable WHERE job = "clerk";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][0], 1);
         assert_eq!(&rows[0][1], "Alice");
-        assert_eq!(&rows[0][2], "20");
+        assert_eq!(&rows[0][2], 20);
         assert_eq!(&rows[0][3], "clerk");
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE job >= "clerk";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
+        let res = db.execute(query.into())?;
 
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE job < "clerk";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
+        let res = db.execute(query.into())?;
 
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "5");
+        assert_eq!(&rows[0][0], 5);
         assert_eq!(&rows[0][1], "Jane");
-        assert_eq!(&rows[0][2], "25");
+        assert_eq!(&rows[0][2], 25);
         assert_eq!(&rows[0][3], "artist");
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age >= 20, job = "clerk";"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
+        let res = db.execute(query.into())?;
 
-        let rows = res[0].get_rows().unwrap();
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][0], 1);
         assert_eq!(&rows[0][1], "Alice");
-        assert_eq!(&rows[0][2], "20");
+        assert_eq!(&rows[0][2], 20);
         assert_eq!(&rows[0][3], "clerk");
 
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age > 15;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 5);
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age < 20;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age > 20;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age >= 20;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         let query = r#"SELECT * FROM mytable WHERE age <= 20;"#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        let rows = res[0].get_rows().unwrap();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 4);
-        println!("{query}\n{}", res[0]);
+        println!("{query}\n{}", res);
 
         cleanup_file(path);
         Ok(())
@@ -419,23 +402,19 @@ pub(crate) mod execute_select {
         let db = test_data_single_index1(path)?;
 
         let query = "SELECT age FROM mytable WHERE id = 9999;";
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].get_rows().unwrap().len(), 0);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.get_rows().unwrap().len(), 0);
 
         let query = "SELECT asdfgsd FROM mytable WHERE id = 3;";
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         let query = "SELECT * FROM mytable WHERE doesnt_exist = 3;";
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         let query = "SELECT col FROM non_table;";
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt);
+        let res = db.execute(query.into());
         assert!(res.is_err());
 
         cleanup_file(path);

@@ -2,5 +2,5 @@
 mod database;
 mod interpreter;
 
-pub use database::api::Database;
-pub use interpreter::Parser;
+pub use database::api::api::{Database, Query, Statement};
+pub use database::types::{DataCell, InputData};

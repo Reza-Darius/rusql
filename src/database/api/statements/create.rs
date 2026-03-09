@@ -162,37 +162,29 @@ mod execute_create {
             col2 = STR,
         );"#;
 
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 1);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.modified(), 1);
 
         let query = r#"
             INSERT INTO new_table (col1, col2) VALUES 1, "Alice";
             INSERT INTO new_table (col1, col2) VALUES 2, "Bob";
             INSERT INTO new_table (col1, col2) VALUES 3, "Charlie";
         "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 1);
-        assert_eq!(res[1].modified, 1);
-        assert_eq!(res[2].modified, 1);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.modified(), 3);
 
         let query = r#"SELECT * FROM new_table;"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 3);
 
         let query = r#"SELECT * FROM new_table WHERE col2 = "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0][0], "1");
+        assert_eq!(&rows[0][0], 1);
         assert_eq!(&rows[0][1], "Alice");
 
         cleanup_file(path);
@@ -227,15 +219,12 @@ mod execute_create {
         let query = r#"
                     CREATE INDEX my_index ON mytable FOR name;
                 "#;
-        let stmt = Parser::parse(query)?;
-        let res = db.execute(stmt)?;
-        assert_eq!(res[0].modified, 6);
+        let res = db.execute(query.into())?;
+        assert_eq!(res.modified(), 6);
 
         let query = r#"SELECT * FROM mytable WHERE name >= "Alice";"#;
-        let stmt = Parser::parse(query)?;
-
-        let res = db.execute(stmt)?;
-        let rows = res[0].select_result.as_ref().unwrap().get_rows();
+        let res = db.execute(query.into())?;
+        let rows = res.get_rows().unwrap();
 
         assert_eq!(rows.len(), 5);
         cleanup_file(path);
