@@ -84,3 +84,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 ```
+
+## Queries
+
+the following are some sample queries that are supported:
+
+```
+SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
+INSERT INTO mytable (col1, col2) VALUES (2*2), "Hello";
+UPDATE mytable SET col1 = "hello", col2 = 10 WHERE col2 > 10 LIMIT 5;
+DELETE FROM mytable WHERE col1 = 1, col2 > 10, col3 <= "hello" LIMIT 10 - 2 ORDER col2;
+
+CREATE TABLE mytable (col1 = INT, col2 = STR, col3 = STR);
+CREATE INDEX myidx ON mytable FOR col1;
+
+DROP TABLE mytable;
+DROP INDEX myidx FROM mytable;
+```
+
+### not supported:
+- joins
+- multiple primary keys/secondary indices
