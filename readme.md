@@ -1,6 +1,6 @@
 # RuSQL
 
-## A complete, minmal dependency database 
+## A complete, from scratch database 
 
 Key Highlights:
 - Persistent B+Tree based key-value storage
