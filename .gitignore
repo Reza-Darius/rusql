@@ -6,3 +6,4 @@ database.rdb
 output.log
 output.txt
 *.rdb
+hello_world.rs
