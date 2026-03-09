@@ -86,25 +86,29 @@ fn main() -> Result<(), Box<dyn Error>> {
 ```
 
 ## Queries
-
 RUSQL follows a syntax cloesly resembling SQLite and should be familiar to most user.
 
 Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)` in legitimate syntax.
+brackets denote optional parameter.
 
-brackets note optional parameter.
+---
 
 `SELECT column, ... FROM table (WHERE) column op expression (LIMIT) expression;`
+
 use the special `*` wildcard operator to select every column!
 
 `INSERT INTO table (column, ...) VALUES expression, ...;`
 
 `UPDATE table SET column = expression, ... (WHERE) column operator expression, ... (LIMIT) expression;`
+
 note: omitting a WHERE clauses sets every column to the given value
 
 `DELETE FROM table (WHERE) column operator expression, ... (LIMIT) expression;`
+
 note: omitting a WHERE clause deletes every entry from the table
 
 `CREATE TABLE table (column = DATATYPE, ...);`
+
 supported data types:
 ```
 INT = 64 bit integer
@@ -112,9 +116,11 @@ STR = UTF8 encoded string
 ```
 
 `CREATE INDEX index_name ON table FOR column;`
+
 create a secondary index for faster lookups 
 
 `DROP TABLE table;`
+
 `DROP INDEX index_name FROM table;`
 
 some more example statements:
