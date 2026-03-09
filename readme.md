@@ -15,6 +15,8 @@ Key Highlights:
 - Hand rolled lexer and parser for accepting SQL queries
 - Custom serialization and deserializtion
 
+Supported Operating Systems:
+- x86_64 Linux
 
 ## Hello world!
 
