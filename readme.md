@@ -89,9 +89,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 ```
 
 ## Queries
-RUSQL follows a syntax cloesly resembling SQLite and should be familiar to most user.
+RUSQL follows a syntax cloesly resembling SQLite and should be familiar to most users.
 
-Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)` in legitimate syntax.
+Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)` is legal syntax.
 
 Bracketed keywords denote optional clauses
 
