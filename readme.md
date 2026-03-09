@@ -167,3 +167,7 @@ DROP INDEX myidx FROM mytable;
 ### currently not supported:
 - joins
 - multiple primary keys/secondary indices
+
+## AI Usage
+
+95% of the code has been written by me as the whole purpose was to learn about programming and Rust. Notable exceptions include a handful of unit tests and the `Display` implementation for SELECT results.
