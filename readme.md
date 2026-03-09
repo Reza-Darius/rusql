@@ -92,20 +92,32 @@ Expressions allow for arithmetic (even with strings!), so `((2 * (10 + 1)) * 2)`
 brackets denote optional parameter.
 
 ---
+#### Select
 
 `SELECT column, ... FROM table (WHERE) column op expression (LIMIT) expression;`
 
 use the special `*` wildcard operator to select every column!
 
+#### Insert
+
 `INSERT INTO table (column, ...) VALUES expression, ...;`
+
+RUSQL rejects mismatching data types
+
+
+#### Update
 
 `UPDATE table SET column = expression, ... (WHERE) column operator expression, ... (LIMIT) expression;`
 
 note: omitting a WHERE clauses sets every column to the given value
 
+#### Delete
+
 `DELETE FROM table (WHERE) column operator expression, ... (LIMIT) expression;`
 
 note: omitting a WHERE clause deletes every entry from the table
+
+#### Create
 
 `CREATE TABLE table (column = DATATYPE, ...);`
 
@@ -119,11 +131,17 @@ STR = UTF8 encoded string
 
 create a secondary index for faster lookups 
 
+
+#### Drop
+
 `DROP TABLE table;`
+
+deletes the entire table
 
 `DROP INDEX index_name FROM table;`
 
-some more example statements:
+deletes the index and all associated rows
+### examples
 
 ```
 SELECT col1, col2 FROM mytable WHERE col1 = ((2 * (10 + 1)) * 2), col2 = "hello" LIMIT -5 + 7;
