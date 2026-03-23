@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
 use crate::{
     database::{

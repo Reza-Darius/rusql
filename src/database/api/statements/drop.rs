@@ -1,18 +1,14 @@
 use std::sync::Arc;
 
-use tracing::{debug, info, instrument};
+use tracing::instrument;
 
 use crate::{
     database::{
         api::response::DBResponse,
         errors::{ExecError, Result},
-        tables::tables::{IdxKind, TableBuilder},
         transactions::tx::TX,
     },
-    interpreter::{
-        CreateIndexStatement, CreateStatement, CreateTableStatement, DropIndexStatement,
-        DropStatement, DropTableStatement,
-    },
+    interpreter::{DropIndexStatement, DropStatement, DropTableStatement},
 };
 
 #[instrument(skip_all, err)]
@@ -46,16 +42,13 @@ fn drop_index(tx: &mut TX, stmt: DropIndexStatement) -> Result<u32> {
 
 #[cfg(test)]
 mod execute_drop {
-    use crate::{
-        database::{
-            api::api::Database,
-            btree::SetFlag,
-            helper::cleanup_file,
-            pager::transaction::Transaction,
-            tables::{Record, TypeCol, tables::TableBuilder},
-            transactions::tx::TXKind,
-        },
-        interpreter::Parser,
+    use crate::database::{
+        api::api::Database,
+        btree::SetFlag,
+        helper::cleanup_file,
+        pager::transaction::Transaction,
+        tables::{Record, TypeCol, tables::TableBuilder},
+        transactions::tx::TXKind,
     };
 
     use super::*;

@@ -170,4 +170,4 @@ DROP INDEX myidx FROM mytable;
 
 ## AI Usage
 
-95% of the code has been written by me as the whole purpose was to learn about programming and Rust. Notable exceptions include a handful of unit tests and the `Display` implementation for SELECT results.
+95% of the code has been written by me since the driving purpose was to learn about programming and Rust. Notable exceptions include a handful of unit tests and the `Display` implementation for SELECT results.

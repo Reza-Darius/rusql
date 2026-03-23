@@ -63,16 +63,13 @@ fn delete_records(tx: &mut TX, table: &Table, records: Vec<Record>) -> Result<u3
 
 #[cfg(test)]
 mod execute_delete {
-    use crate::{
-        database::{
-            api::api::Database,
-            btree::SetFlag,
-            helper::cleanup_file,
-            pager::transaction::Transaction,
-            tables::{TypeCol, tables::TableBuilder},
-            transactions::tx::TXKind,
-        },
-        interpreter::Parser,
+    use crate::database::{
+        api::api::Database,
+        btree::SetFlag,
+        helper::cleanup_file,
+        pager::transaction::Transaction,
+        tables::{TypeCol, tables::TableBuilder},
+        transactions::tx::TXKind,
     };
 
     use super::*;

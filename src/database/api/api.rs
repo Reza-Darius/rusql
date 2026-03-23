@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::database::api::response::DBResponse;
 use crate::database::api::statements::*;
-use crate::database::errors::{ExecError, Result};
+use crate::database::errors::Result;
 use crate::database::pager::transaction::{CommitStatus, Transaction};
 use crate::database::transactions::kvdb::*;
 use crate::database::transactions::tx::*;

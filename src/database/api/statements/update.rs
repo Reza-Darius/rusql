@@ -2,10 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     database::{
-        api::{
-            response::DBResponse,
-            statements::{helper::filter_where, select::*},
-        },
+        api::{response::DBResponse, statements::helper::filter_where},
         btree::SetFlag,
         errors::*,
         tables::{
@@ -17,7 +14,7 @@ use crate::{
     interpreter::{StatementSet, UpdateStatement},
 };
 
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 #[instrument(skip_all, err)]
 pub fn exec_update(tx: &mut TX, stmt: UpdateStatement) -> Result<DBResponse> {
